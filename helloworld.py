@@ -2,6 +2,9 @@ from src.clasher.gym_env import ClashRoyaleGymEnv
 import gymnasium
 import logging
 import matplotlib.pyplot as plt
+import json
+import os
+import datetime
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
@@ -9,6 +12,13 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 env = ClashRoyaleGymEnv()
 obs, info = env.reset()
 logging.info("Environment reset. Starting the game loop.")
+
+# Prepare JSONL action log
+os.makedirs("replays/logs", exist_ok=True)
+timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+log_path = f"replays/logs/helloworld_{timestamp}.jsonl"
+log_fh = open(log_path, "a")
+logging.info(f"Logging actions to {log_path}")
 
 # Set up live matplotlib figure
 plt.ion()
@@ -22,14 +32,32 @@ while True:
     # Take a step
     obs, reward, terminated, truncated, info = env.step(action)
 
+    # Append step info to log
+    entry = {
+        "tick": info.get("tick"),
+        "time": info.get("time"),
+        "last_action": info.get("last_action"),
+        "players": info.get("players"),
+        "reward": float(reward),
+    }
+    log_fh.write(json.dumps(entry) + "\n")
+    log_fh.flush()
+
     if terminated or truncated:
         logging.info("Game terminated. Exiting the loop.")
         break
-    
+
     #show observation
     image = obs['p1-view']
     logging.info(f"Observation shape: {image.shape}, dtype: {image.dtype}")
     logging.info("Info keys: " + ", ".join(info.keys()))
+
+    #ERROR OUT IF WE EVER GO NEGATIVE ELIXIR
+    for player in info["players"]:
+        elixir = player["elixir"]
+        if elixir < 0:
+            logging.error(f"Negative elixir detected for player {player['player_id']}: {elixir}")
+            raise ValueError(f"Negative elixir detected for player {player['player_id']}: {elixir}")
 
     # Print basic info for tower entities by sampling the obs at their pixel locations
     logging.info(f"Type map: {env._type_to_id}")
@@ -70,4 +98,5 @@ while True:
     numSteps += 1
 
 env.close()
+log_fh.close()
 logging.info("Environment closed.")

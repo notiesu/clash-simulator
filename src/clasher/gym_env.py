@@ -156,8 +156,23 @@ class ClashRoyaleGymEnv(gym.Env):
         deploy_x = float(x_tile + 0.5)
         deploy_y = float(y_tile + 0.5)
 
-        # Attempt to deploy as player 0
-        self.engine.simulate_action(0, card_name, deploy_x, deploy_y)
+        # Attempt to deploy as player 0 and record whether it succeeded
+        action_success = self.engine.simulate_action(0, card_name, deploy_x, deploy_y)
+
+
+        #TODO: MAKE SOMETHING SMARTER
+        # Simple AI for player 1: random deploy from hand at random tile
+        import random
+        p1_hand = self.battle.players[1].hand
+        if len(p1_hand) > 0:
+            p1_card_idx = random.randint(0, len(p1_hand) - 1)
+            p1_card_name = p1_hand[p1_card_idx]
+            p1_x_tile = random.randint(0, self.tiles_x - 1)
+            p1_y_tile = random.randint(0, self.tiles_y - 1)
+            p1_deploy_x = float(p1_x_tile + 0.5)
+            p1_deploy_y = float(p1_y_tile + 0.5)
+            self.engine.simulate_action(1, p1_card_name, p1_deploy_x, p1_deploy_y)
+        
 
         # Advance simulation one tick
         self.battle.step(self.speed_factor)
@@ -175,7 +190,13 @@ class ClashRoyaleGymEnv(gym.Env):
         info: Dict[str, Any] = {
             "tick": self.battle.tick,
             "time": self.battle.time,
-
+            "last_action": {
+                "card_idx": int(card_idx),
+                "card_name": str(card_name),
+                "tile": (int(x_tile), int(y_tile)),
+                "position": (deploy_x, deploy_y),
+                "success": bool(action_success),
+            }
         }
 
         # Provide structured entity metadata (stable for debugging / agents)
