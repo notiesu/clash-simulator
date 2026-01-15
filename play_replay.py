@@ -47,7 +47,6 @@ def main(path: str):
 
     # print(schedule[1])
     print(f"Loaded {len(actions)} logged steps. Scheduled actions for {len(schedule)} ticks.")
-    print(schedule)
     # Use the visualizer's existing window and draw loop but step manually
     import pygame
     pygame.init()
@@ -100,6 +99,9 @@ def main(path: str):
         if tick > len(schedule) + 200 or vis.battle.game_over:
             time.sleep(1.0)
             running = False
+
+    #quit after input
+    input("Replay finished. Press Enter to exit...")
 
     pygame.quit()
 

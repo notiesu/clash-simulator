@@ -7,3 +7,12 @@ helloworld.py - basic environment stepping, log random games
 play_replay.py - visualize game in pygame
     -usage: python play_replay.py {GAME_LOG_PATH}
     
+TODOs:
+Refactor inference code with proper abstractions
+Troubleshoot model
+    - tweak reward to take into account elixir, hand, stuff like that
+
+Issues:
+Pathfinding and retargeting are broken
+Tower range is slightly off
+

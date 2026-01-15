@@ -170,9 +170,9 @@ class ClashRoyaleGymEnv(gym.Env):
 
         # Decode and deploy for both players
         #TODO - SEPARATE DECISION MAKING SYSTEM FOR P0
-        p0_card_idx, card_name, p0_x_tile, p0_y_tile, deploy_x, deploy_y, action_success = decode_and_deploy(0, action)
+        p0_card_idx, card_name, p0_x_tile, p0_y_tile, deploy_x, deploy_y, p0_action_success = decode_and_deploy(0, action)
         #TODO - P1 WILL ALWAYS PLAY RANDOM ACTIONS DUE TO NULL ACTION PASSING
-        p1_card_idx, p1_card_name, p1_x_tile, p1_y_tile, p1_deploy_x, p1_deploy_y, _ = decode_and_deploy(1)
+        p1_card_idx, p1_card_name, p1_x_tile, p1_y_tile, p1_deploy_x, p1_deploy_y, p1_action_success = decode_and_deploy(1)
 
         # Advance simulation one tick
         self.battle.step(self.speed_factor)
@@ -196,14 +196,14 @@ class ClashRoyaleGymEnv(gym.Env):
                 "card_name": str(card_name),
                 "tile": (int(p0_x_tile), int(p0_y_tile)),
                 "position": (deploy_x, deploy_y),
-                "success": bool(action_success),
+                "success": bool(p0_action_success),
             },
             "player_1": {
                 "card_idx": int(p1_card_idx) if len(self.battle.players[1].hand) > 0 else None,
                 "card_name": str(p1_card_name) if len(self.battle.players[1].hand) > 0 else None,
                 "tile": (int(p1_x_tile), int(p1_y_tile)) if len(self.battle.players[1].hand) > 0 else None,
                 "position": (p1_deploy_x, p1_deploy_y) if len(self.battle.players[1].hand) > 0 else None,
-                "success": bool(len(self.battle.players[1].hand) > 0),  # Assume success if a card was played
+                "success": bool(p1_action_success) if len(self.battle.players[1].hand) > 0 else None,
             }
             }
         }
@@ -285,6 +285,7 @@ class ClashRoyaleGymEnv(gym.Env):
 
     def _render_obs(self) -> np.ndarray:
         #TODO - ONE HOT ENCODING
+        #TODO - Some feature ideas: agent/opponent elixir leaked, time elapsed, hand predictions
         """Render a 128x128x3 observation tensor with channels:
 
         - channel 0: owner mask (255 for player0, 128 for player1, 0 background)
