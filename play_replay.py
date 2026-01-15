@@ -34,15 +34,20 @@ def main(path: str):
     # We'll run the visualizer display loop but drive the battle by applying
     # recorded actions at the ticks they were logged.
     # Build a mapping tick -> list of actions
-    schedule = {}
+    schedule = []
     for entry in actions:
         t = entry.get('tick')
         if t is None:
             continue
-        schedule.setdefault(int(t), []).append(entry.get('last_action'))
+        last_action = entry.get('last_action')
+        if last_action:
+            schedule.append(last_action)
+        else:
+            schedule.append({})
 
+    # print(schedule[1])
     print(f"Loaded {len(actions)} logged steps. Scheduled actions for {len(schedule)} ticks.")
-
+    print(schedule)
     # Use the visualizer's existing window and draw loop but step manually
     import pygame
     pygame.init()
@@ -56,16 +61,26 @@ def main(path: str):
                 running = False
 
         # Apply scheduled actions for this tick
-        scheduled = schedule.get(tick, [])
-        for act in scheduled:
+        scheduled = schedule[tick]
+        # print(scheduled)
+        if not scheduled:
+            # print("Scheduled wrong format")
+            continue
+        for player, act in scheduled.items():
             if not act:
                 continue
-            # act contains card_name, position and success flag
+            # act contains card_idx, card_name, tile, position, and success flag
             card = act.get('card_name')
             pos = act.get('position')
-            if card and pos:
-                # Deploy on visualizer's battle instance
-                vis.battle.deploy_card(0, card, Position(pos[0], pos[1]))
+            success = act.get('success')
+            if card and pos and success:  # Only deploy if the action was successful
+                # Deploy on visualizer's battle instance for the respective player
+                # print(card + " " + str(pos) + " " + player)
+                player_id = int(player.split('_')[1])  # Extract player ID from key
+                vis.battle.deploy_card(player_id, card, Position(pos[0], pos[1]))
+            else:
+                # print(f"Skipping action for player {player}: incomplete data or unsuccessful deployment.")
+                continue
 
         # Step the battle once
         vis.battle.step(speed_factor=1.0)
@@ -82,7 +97,7 @@ def main(path: str):
         clock.tick(30)
 
         # Stop when no more scheduled ticks and battle over
-        if tick > max(schedule.keys()) + 200 or vis.battle.game_over:
+        if tick > len(schedule) + 200 or vis.battle.game_over:
             time.sleep(1.0)
             running = False
 

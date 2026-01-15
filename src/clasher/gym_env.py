@@ -16,12 +16,15 @@ except Exception as e:
 from .engine import BattleEngine
 from .arena import TileGrid, Position
 
+MAX_TOTAL_TOWER_HP = 12086  # 4824 + 2 * 3631
+
 
 class ClashRoyaleGymEnv(gym.Env):
     """Simple Gymnasium environment wrapper around BattleEngine/BattleState.
 
     Action encoding (discrete 2304): card_idx (4) x x_tile (18) x y_tile (32)
-    Observation: dict with `'p1-view'` -> 128x128x3 uint8 RGB-like tensor
+    Observation: dict with `'p1-view'` -> 128x128x3 
+    Channel 1 - 0 = p0, 1 = p1, 
     """
 
     metadata = {"render_modes": ["rgb_array"]}
@@ -140,39 +143,36 @@ class ClashRoyaleGymEnv(gym.Env):
         return {"p1-view": obs}, info
 
     def step(self, action: int):
-        # Decode action
-        card_idx = action // self.actions_per_tile
-        tile_index = action % self.actions_per_tile
-        x_tile = tile_index % self.tiles_x
-        y_tile = tile_index // self.tiles_x
+        def decode_and_deploy(player_id: int, action: Optional[int] = None):
+            if action is None:
+                #pick some random int 
+                action = self.action_space.sample()
+            
+            card_idx = action // self.actions_per_tile
+            tile_index = action % self.actions_per_tile
+            x_tile = tile_index % self.tiles_x
+            y_tile = tile_index // self.tiles_x
 
-        # Choose card name from player hand (fall back safely)
-        hand = self.battle.players[0].hand
-        if card_idx < 0 or card_idx >= len(hand):
-            card_idx = 0
-        card_name = hand[card_idx]
+            # Choose card name from player hand (fall back safely)
+            hand = self.battle.players[player_id].hand
+            if card_idx < 0 or card_idx >= len(hand):
+                card_idx = 0
+            card_name = hand[card_idx]
 
-        # Convert to deploy position (center of tile)
-        deploy_x = float(x_tile + 0.5)
-        deploy_y = float(y_tile + 0.5)
+            # Convert to deploy position (center of tile)
+            deploy_x = float(x_tile + 0.5)
+            deploy_y = float(y_tile + 0.5)
 
-        # Attempt to deploy as player 0 and record whether it succeeded
-        action_success = self.engine.simulate_action(0, card_name, deploy_x, deploy_y)
+            # Attempt to deploy as player 0 and record whether it succeeded
+            action_success = self.engine.simulate_action(player_id, card_name, deploy_x, deploy_y)
 
+            return card_idx, card_name, x_tile, y_tile, deploy_x, deploy_y, action_success
 
-        #TODO: MAKE SOMETHING SMARTER
-        # Simple AI for player 1: random deploy from hand at random tile
-        import random
-        p1_hand = self.battle.players[1].hand
-        if len(p1_hand) > 0:
-            p1_card_idx = random.randint(0, len(p1_hand) - 1)
-            p1_card_name = p1_hand[p1_card_idx]
-            p1_x_tile = random.randint(0, self.tiles_x - 1)
-            p1_y_tile = random.randint(0, self.tiles_y - 1)
-            p1_deploy_x = float(p1_x_tile + 0.5)
-            p1_deploy_y = float(p1_y_tile + 0.5)
-            self.engine.simulate_action(1, p1_card_name, p1_deploy_x, p1_deploy_y)
-        
+        # Decode and deploy for both players
+        #TODO - SEPARATE DECISION MAKING SYSTEM FOR P0
+        p0_card_idx, card_name, p0_x_tile, p0_y_tile, deploy_x, deploy_y, action_success = decode_and_deploy(0, action)
+        #TODO - P1 WILL ALWAYS PLAY RANDOM ACTIONS DUE TO NULL ACTION PASSING
+        p1_card_idx, p1_card_name, p1_x_tile, p1_y_tile, p1_deploy_x, p1_deploy_y, _ = decode_and_deploy(1)
 
         # Advance simulation one tick
         self.battle.step(self.speed_factor)
@@ -191,11 +191,20 @@ class ClashRoyaleGymEnv(gym.Env):
             "tick": self.battle.tick,
             "time": self.battle.time,
             "last_action": {
-                "card_idx": int(card_idx),
+            "player_0": {
+                "card_idx": int(p0_card_idx),
                 "card_name": str(card_name),
-                "tile": (int(x_tile), int(y_tile)),
+                "tile": (int(p0_x_tile), int(p0_y_tile)),
                 "position": (deploy_x, deploy_y),
                 "success": bool(action_success),
+            },
+            "player_1": {
+                "card_idx": int(p1_card_idx) if len(self.battle.players[1].hand) > 0 else None,
+                "card_name": str(p1_card_name) if len(self.battle.players[1].hand) > 0 else None,
+                "tile": (int(p1_x_tile), int(p1_y_tile)) if len(self.battle.players[1].hand) > 0 else None,
+                "position": (p1_deploy_x, p1_deploy_y) if len(self.battle.players[1].hand) > 0 else None,
+                "success": bool(len(self.battle.players[1].hand) > 0),  # Assume success if a card was played
+            }
             }
         }
 
@@ -256,20 +265,26 @@ class ClashRoyaleGymEnv(gym.Env):
         # Nothing special required for now
         return
 
-    def _compute_score(self) -> float:
-        """Compute a simple scalar score combining crowns and tower HP differences."""
+    def _compute_score(self):
+        """
+        Compute a simple score based on tower HP differences and crowns.
+        Positive score favors player 0, negative favors player 1."""
         p0 = self.battle.players[0]
         p1 = self.battle.players[1]
 
-        crowns_diff = p0.get_crown_count() - p1.get_crown_count()
-        tower_hp_diff = (p0.king_tower_hp + p0.left_tower_hp + p0.right_tower_hp) - (
-            p1.king_tower_hp + p1.left_tower_hp + p1.right_tower_hp
+        tower_diff = (
+            p0.king_tower_hp + p0.left_tower_hp + p0.right_tower_hp
+            - p1.king_tower_hp - p1.left_tower_hp - p1.right_tower_hp
         )
 
-        # Scale components so rewards are in reasonable ranges
-        return float(crowns_diff * 100.0 + tower_hp_diff / 100.0)
+        tower_term = tower_diff / MAX_TOTAL_TOWER_HP
+        crown_term = (p0.get_crown_count() - p1.get_crown_count()) * 1.0
+
+        return tower_term + crown_term
+
 
     def _render_obs(self) -> np.ndarray:
+        #TODO - ONE HOT ENCODING
         """Render a 128x128x3 observation tensor with channels:
 
         - channel 0: owner mask (255 for player0, 128 for player1, 0 background)

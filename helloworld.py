@@ -81,19 +81,19 @@ while True:
             position = entity_meta["position"]
             hp_frac = entity_meta["hp_frac"]
             logging.info(f"Entity Type ID: {type_id}, Name: {type_name}, Position: {position}, HP Fraction: {hp_frac:.2f}\n")
-        ax.clear()
-        ax.imshow(image)
-        ax.axis('off')
-        fig.canvas.draw()
-        fig.canvas.flush_events()
+        # ax.clear()
+        # ax.imshow(image)
+        # ax.axis('off')
+        # fig.canvas.draw()
+        # fig.canvas.flush_events()
         
         #print player info - elixir, hand, crowns
-        for player in info["players"]:
-            elixir = player["elixir"]
-            hand = player["hand"]
-            crowns = player["crowns"]
-            logging.info(f"Player {player['player_id']} - Elixir: {elixir}, Hand: {hand}, Crowns: {crowns}")
-        input("Press Enter to continue to the next step...")  # Wait for user input to proceed
+    for player in info["players"]:
+        elixir = player["elixir"]
+        hand = player["hand"]
+        crowns = player["crowns"]
+        logging.info(f"Player {player['player_id']} - Elixir: {elixir}, Hand: {hand}, Crowns: {crowns}")
+        # input("Press Enter to continue to the next step...")  # Wait for user input to proceed
 
     numSteps += 1
 
