@@ -11,7 +11,11 @@ TODOs:
 Refactor inference code with proper abstractions
 Troubleshoot model
     - tweak reward to take into account elixir, hand, stuff like that
-
+GPU infra
+    - docker base image containing environment and engine
+    - handler image for entrypoint training scripts
+    - allow uploading training packages
+    
 Issues:
 Pathfinding and retargeting are broken
 Tower range is slightly off

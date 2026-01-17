@@ -153,6 +153,11 @@ class ClashRoyaleGymEnv(gym.Env):
             x_tile = tile_index % self.tiles_x
             y_tile = tile_index // self.tiles_x
 
+            #int casting
+            card_idx = int(card_idx)
+            x_tile = int(x_tile)
+            y_tile = int(y_tile)
+
             # Choose card name from player hand (fall back safely)
             hand = self.battle.players[player_id].hand
             if card_idx < 0 or card_idx >= len(hand):

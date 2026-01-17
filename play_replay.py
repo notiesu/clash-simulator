@@ -96,7 +96,7 @@ def main(path: str):
         clock.tick(30)
 
         # Stop when no more scheduled ticks and battle over
-        if tick > len(schedule) + 200 or vis.battle.game_over:
+        if tick >= len(schedule) or vis.battle.game_over:
             time.sleep(1.0)
             running = False
 
