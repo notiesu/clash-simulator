@@ -10,6 +10,7 @@ class PlayerState:
     player_id: int
     elixir: float = 5.0
     max_elixir: float = 10.0
+    elixir_wasted: float = 0.0
     
     # Card system
     hand: List[str] = field(default_factory=lambda: ["Knight", "Archer", "Giant", "Minions"])

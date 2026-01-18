@@ -119,8 +119,13 @@ class BattleState:
         elif self.double_elixir:
             base_regen = 1.4
         
+        # Track elixir that would have been generated while at max (leaked)
+        elixir_per_second = 1.0 / base_regen if base_regen > 0 else 0.0
         for player in self.players:
-            player.regenerate_elixir(dt, base_regen)
+            if player.elixir >= player.max_elixir:
+                player.elixir_wasted += elixir_per_second * dt
+            else:
+                player.regenerate_elixir(dt, base_regen)
         
         # Update all entities
         for entity in list(self.entities.values()):

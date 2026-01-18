@@ -2,6 +2,7 @@ import logging
 import os
 import datetime
 import json
+import numpy as np
 
 class InferenceModel:
     def __init__(self, env, printLogs=False):
@@ -99,6 +100,33 @@ class InferenceModel:
             if hasattr(self, 'printLogs') and self.printLogs:
                 log_fh.write(json.dumps(entry) + "\n")
                 log_fh.flush()
+
+            #UPDATE THE SAMPLE_INFO.JSON JUST CUZ
+            def to_json_safe(x):
+                if isinstance(x, np.ndarray):
+                    return x.tolist()
+                if isinstance(x, (np.integer, np.floating)):
+                    return x.item()
+                if isinstance(x, dict):
+                    return {k: to_json_safe(v) for k, v in x.items()}
+                if isinstance(x, (list, tuple)):
+                    return [to_json_safe(v) for v in x]
+                return x
+            info = to_json_safe(info)
+            try:
+                with open("replays/sample_info.json", "w") as info_fh:
+                    json.dump(info, info_fh, indent=4)
+            except:
+                try:
+                    with open("replays/sample_info.json", "w") as info_fh:
+                        json.dump(info, info_fh, indent=4)
+                except Exception as e:
+                    logging.error(f"Failed to serialize info to JSON for sample_info.json: {e}")
+                    logging.info("Keeping the existing content of sample_info.json.")
+                    # just keep going though don't error out
+            num_steps += 1
+
+
 
         if hasattr(self, 'printLogs') and self.printLogs:
             logging.info("Game terminated. Exiting the loop.")

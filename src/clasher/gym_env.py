@@ -114,6 +114,7 @@ class ClashRoyaleGymEnv(gym.Env):
             players_meta.append({
                 "player_id": p.player_id,
                 "elixir": float(p.elixir),
+                "elixir_waste": float(getattr(p, 'elixir_wasted', 0.0)),
                 "hand": list(p.hand),
                 "crowns": int(p.get_crown_count()),
                 "king_hp": float(p.king_tower_hp),
@@ -121,13 +122,17 @@ class ClashRoyaleGymEnv(gym.Env):
                 "right_hp": float(p.right_tower_hp),
             })
         info["players"] = players_meta
+        # aggregate elixir waste (both players)
+        info["elixir_waste"] = sum([getattr(p, 'elixir_wasted', 0.0) for p in self.battle.players])
 
         # players meta
         players_meta = []
+
         for p in self.battle.players:
             players_meta.append({
                 "player_id": p.player_id,
                 "elixir": float(p.elixir),
+                "elixir_waste": float(getattr(p, 'elixir_wasted', 0.0)),
                 "hand": list(p.hand),
                 "crowns": int(p.get_crown_count()),
                 "king_hp": float(p.king_tower_hp),
@@ -135,6 +140,7 @@ class ClashRoyaleGymEnv(gym.Env):
                 "right_hp": float(p.right_tower_hp),
             })
         info["players"] = players_meta
+        info["elixir_waste"] = sum([getattr(p, 'elixir_wasted', 0.0) for p in self.battle.players])
 
         return {"p1-view": obs}, info
 
@@ -246,6 +252,7 @@ class ClashRoyaleGymEnv(gym.Env):
             players_meta.append({
                 "player_id": p.player_id,
                 "elixir": float(p.elixir),
+                "elixir_waste": float(getattr(p, 'elixir_wasted', 0.0)),
                 "hand": list(p.hand),
                 "crowns": int(p.get_crown_count()),
                 "king_hp": float(p.king_tower_hp),
@@ -254,6 +261,7 @@ class ClashRoyaleGymEnv(gym.Env):
             })
 
         info["players"] = players_meta
+        info["elixir_waste"] = sum([getattr(p, 'elixir_wasted', 0.0) for p in self.battle.players])
 
         return {"p1-view": obs}, float(reward), terminated, truncated, info
 

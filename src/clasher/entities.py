@@ -864,7 +864,7 @@ class Projectile(Entity):
     
     def _deal_splash_damage(self, battle_state: 'BattleState') -> None:
         """Deal damage to entities in splash radius using hitbox overlap detection"""
-        for entity in battle_state.entities.values():
+        for entity in list(battle_state.entities.values()):
             if entity.player_id == self.player_id or not entity.is_alive:
                 continue
             
