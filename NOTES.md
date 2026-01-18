@@ -28,6 +28,7 @@ S.t. the server can call it like this: python train.py --output_dir "output"
 You can also add more arguments if you would like, just make sure to pass it in the HTTP request to runpod and the handler will unpack all the arguments with the double-tag just as in the format above.
 
 IMPORTANT NOTE: MAKE SURE PACKAGE IMPORTS ARE DONE CORRECTLY! STRUCTURE YOUR ENVIRONMENT LIKE THIS:
+STRUCTURE IT LIKE THIS FOR SENDING TO THE GPU
 -project root
     - training package
         -train.py
@@ -36,6 +37,19 @@ IMPORTANT NOTE: MAKE SURE PACKAGE IMPORTS ARE DONE CORRECTLY! STRUCTURE YOUR ENV
     - clash-simulator
         -src
             -gym_env.py
+    - output
+    - train.sh
+    - .env
+
+TESTING:
+-project root
+    - clash-simulator
+        -src
+            -gym_env.py
+        - training package
+            -train.py
+            -data
+            -wrappers and other needed training code
     - output
 
 and try to run your train.py like this: python -m ${INSERT_TRAINING_DIR_HERE}.train --output_dir "output". If you get output and no errors then it should work properly on the server!

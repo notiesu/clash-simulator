@@ -1,20 +1,17 @@
 import runpod
 import os
 import subprocess
-import logging
 
 def handler(job):
     # Get the input from the job
     input = job.get("input", {})
 
-    #start logging session
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
-    logger.info("Starting training job with input: %s", input)
+    # Start logging session using print
+    print("Starting training job with input:", input)
 
-    #TODO - add inference capabilities
+    # TODO - add inference capabilities
 
-    #training params
+    # Training params
     train_dir = input.get("train_dir", "train_dir_default")
     run_name = input.get("run_name", "default_run")
     args = []
@@ -23,12 +20,22 @@ def handler(job):
         args.append(f"--{key}")
         args.append(str(value))
 
-    logging.info("Training with args: %s", args)
+    print("Training with args:", args)
     
     runtrain = ["./api-train.sh"] + args
 
-    # Call the voice cloning script
-    subprocess.run(runtrain, check=True)
+    # ENSURE LOGS ARE UNBUFFERED
+    proc = subprocess.run(
+        runtrain,
+        text=True,
+        env={**os.environ, "PYTHONUNBUFFERED": "1"},
+    )
+
+    # This line is only reached if the subprocess actually returned
+    print("api-train exited with code", proc.returncode)
+
+    if proc.returncode != 0:
+        raise RuntimeError("api-train failed")
 
 # Start the serverless handler
 runpod.serverless.start({"handler": handler})

@@ -3,21 +3,16 @@
 This provides a minimal, working `ClashRoyaleGymEnv` implementation suitable
 for running the project's `helloworld.py` demo and for basic RL loops.
 """
+import contextlib
 from typing import Tuple, Dict, Any, Optional
 
 import numpy as np
-
-try:
-    import gymnasium as gym
-    from gymnasium import spaces
-except Exception as e:
-    raise ImportError("gymnasium is required to use ClashRoyaleGymEnv.\nInstall it with `pip install gymnasium`.")
-
+import gymnasium as gym
+from gymnasium import spaces
 from .engine import BattleEngine
 from .arena import TileGrid, Position
 
 MAX_TOTAL_TOWER_HP = 12086  # 4824 + 2 * 3631
-
 
 class ClashRoyaleGymEnv(gym.Env):
     """Simple Gymnasium environment wrapper around BattleEngine/BattleState.
@@ -29,7 +24,7 @@ class ClashRoyaleGymEnv(gym.Env):
 
     metadata = {"render_modes": ["rgb_array"]}
 
-    def __init__(self, speed_factor: float = 1.0, data_file: str = "gamedata.json", max_steps: int = 9090):
+    def __init__(self, speed_factor: float = 1.0, data_file: str = "gamedata.json", max_steps: int = 9090, suppress_output: bool = True):
         super().__init__()
         self.speed_factor = speed_factor
         self.data_file = data_file
@@ -56,6 +51,7 @@ class ClashRoyaleGymEnv(gym.Env):
         # Mapping from unit type name to compact type id (1..254)
         self._type_to_id: Dict[str, int] = {}
         self._next_type_id = 1
+        
 
     def seed(self, seed: Optional[int] = None):
         if seed is None:
