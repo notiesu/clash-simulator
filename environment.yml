@@ -53,7 +53,8 @@ dependencies:
       - pytz==2025.2
       - rich==14.2.0
       - six==1.17.0
-      - stable-baselines3==2.4.1
+      - stable-baselines3[extra]==2.4.1
+      - sb3-contrib==2.4.0
       - sympy==1.14.0
       - torch==2.2.2
       - tqdm==4.67.1

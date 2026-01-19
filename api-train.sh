@@ -45,14 +45,14 @@ if [[ ! -d "$TRAIN_PATH" ]]; then
     exit 1
 fi
 
-cp -r "$TRAIN_PATH" ./
+cp -r "$TRAIN_PATH" "./train"
 
 mkdir -p output "$OUT_PATH"
 
 echo "Starting training..."
 
 "$MICROMAMBA_BIN" run -n appenv \
-    python -u -m "${RUN_NAME}.train" --output_dir output \
+    python -u -m "train.train" --output_dir output "$@" \
     2>&1 | tee output/train.log
 
 STATUS=${PIPESTATUS[0]}
