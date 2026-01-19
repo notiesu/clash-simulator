@@ -92,34 +92,7 @@ def parse_replay_json_file(path: Path) -> Dict[str, Any]:
 
     events: List[Dict[str, Any]] = []
 
-    # --- (A) timeline "play" events ---
-    # These are card icons on the timeline (both team and opponent sections)
-    # Example: <img class="replay_card" data-card="archers" data-t="185" data-s="blue" ...>
-    for img in soup.select(".replay_team img.replay_card[data-t][data-card]"):
-        t = to_int_or_none(img.get("data-t"))
-        card = img.get("data-card")
-        side = img.get("data-s")  # "blue" or "red" (or sometimes missing)
-        ability = to_int_or_none(img.get("data-ability"))
-
-        if t is None or not card:
-            continue
-        if card == "_invalid":
-            continue
-
-        events.append({
-            "type": "play",
-            "t": t,
-            "side": side,
-            "card": card,
-            "x": None,
-            "y": None,
-            "meta": {
-                "ability": ability,
-                "src": img.get("src"),
-            }
-        })
-
-    # --- (B) map "place" events ---
+    # --- (A) map "place" events ---
     # Example marker:
     # <div class="blue marker ..." data-x="6499" data-y="23499" data-c="archers" data-t="185" data-s="t" ...>
     for mk in soup.select(".replay_map .markers .marker[data-t][data-c]"):
@@ -189,26 +162,6 @@ def write_jsonl(record: Dict[str, Any], out_path: Path) -> None:
         encoding="utf-8"
     )
 
-def write_events_csv(record: Dict[str, Any], out_path: Path) -> None:
-    fieldnames = ["replay_id", "battle_time_utc", "t", "type", "side", "card", "x", "y", "ability", "meta_s", "meta_i"]
-    with out_path.open("w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=fieldnames)
-        w.writeheader()
-        for ev in record["events"]:
-            meta = ev.get("meta") or {}
-            w.writerow({
-                "replay_id": record["replay_id"],
-                "battle_time_utc": record.get("battle_time_utc"),
-                "t": ev.get("t"),
-                "type": ev.get("type"),
-                "side": ev.get("side"),
-                "card": ev.get("card"),
-                "x": ev.get("x"),
-                "y": ev.get("y"),
-                "ability": meta.get("ability"),
-                "meta_s": meta.get("s"),
-                "meta_i": meta.get("i"),
-            })
 
 def main():
     ap = argparse.ArgumentParser()
@@ -232,10 +185,6 @@ def main():
         # RL-friendly JSONL (one replay per file; easy to stream)
         jsonl_path = out_dir / f"replay_{rid}.jsonl"
         write_jsonl(record, jsonl_path)
-
-        if args.csv:
-            csv_path = out_dir / f"events_{rid}.csv"
-            write_events_csv(record, csv_path)
 
         print(f"[OK] {fp.name} -> {jsonl_path.name} (events={record['event_count']})")
 
