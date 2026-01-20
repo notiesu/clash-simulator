@@ -145,6 +145,27 @@ def parse_replay_json_file(path: Path) -> Dict[str, Any]:
     }
     return record
 
+def parse_directory(input_dir: Path, output_dir: Path):
+    output_dir.mkdir(parents=True, exist_ok=True)
+    replay_files = sorted(input_dir.rglob("*.json"))
+
+    if not replay_files:
+        print("No replay JSON files found.")
+        return
+
+    print(f"Found {len(replay_files)} replay files")
+
+    for replay_path in replay_files:
+        if replay_path.name == "manifest.json":
+            continue
+
+        parsed = parse_replay_json_file(replay_path)
+
+        out_path = output_dir / replay_path.with_suffix(".jsonl").name
+        write_jsonl(parsed, out_path)
+
+        print(f"Parsed → {out_path.name}")
+
 
 # -----------------------------
 # IO / CLI
@@ -165,28 +186,12 @@ def write_jsonl(record: Dict[str, Any], out_path: Path) -> None:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--input", required=True, help="Path to replay_*.json file OR directory containing them")
-    ap.add_argument("--out", required=True, help="Output directory")
-    ap.add_argument("--csv", action="store_true", help="Also write per-replay events CSV")
+    ap.add_argument("--input_dir", required=True, help="Directory containing raw replay JSON files")
+    ap.add_argument("--output_dir", required=True, help="Directory to save parsed RL-ready files")
     args = ap.parse_args()
 
-    input_path = Path(args.input).expanduser().resolve()
-    out_dir = Path(args.out).expanduser().resolve()
-    out_dir.mkdir(parents=True, exist_ok=True)
+    parse_directory(Path(args.input_dir), Path(args.output_dir))
 
-    files = iter_input_files(input_path)
-    if not files:
-        raise SystemExit(f"No replay_*.json files found under: {input_path}")
-
-    for fp in files:
-        record = parse_replay_json_file(fp)
-        rid = record["replay_id"]
-
-        # RL-friendly JSONL (one replay per file; easy to stream)
-        jsonl_path = out_dir / f"replay_{rid}.jsonl"
-        write_jsonl(record, jsonl_path)
-
-        print(f"[OK] {fp.name} -> {jsonl_path.name} (events={record['event_count']})")
 
 if __name__ == "__main__":
     main()
