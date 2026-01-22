@@ -15,25 +15,23 @@ from scripts.train.ppo_wrapper import PPOObsWrapper
 
 # reuse the same observation wrapper used by PPO inference
 
+
 class RecurrentPPOInferenceModel(InferenceModel):
-    def __init__(self, env, printLogs=False):
-        self._base_env = env
+    def __init__(self):
+        super().__init__()
         self.state = None
         self.episode_start = None
-        super().__init__(env, printLogs)
-
-    def wrap_env(self, env):
-        self.env = DummyVecEnv([lambda: PPOObsWrapper(env)])
-        return self.env
-
-    def reset(self):
-        obs = self.env.reset()
-        self.state = None
-        self.episode_start = np.ones((self.env.num_envs,), dtype=bool)
-        return obs
+        #some custom parameters for reward shaping
+        self._prev_tower_hps = None
+        self._main_hit_seen = {0: False, 1: False}
+        self._prev_elixir_waste = 0.0
+        self._prev_time = 0.0
+        self._elixir_overflow_accum = 0.0
+        self._H_main = 4824.0
+        self._H_aux = 3631.0
 
     def load_model(self, model_path):
-        self.model = RecurrentPPO.load(model_path, env=self.env)
+        self.model = RecurrentPPO.load(model_path)
 
     def predict(self, obs):
         action, self.state = self.model.predict(
@@ -44,119 +42,132 @@ class RecurrentPPOInferenceModel(InferenceModel):
         )
         return action
 
-    def sim_game(self):
-        """Run a single episode using the recurrent model. Returns episode reward."""
-        log_fh = None
-        if hasattr(self, "printLogs") and self.printLogs:
-            logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
-            logging.info("Starting single-game evaluation.")
-            os.makedirs("replays/logs", exist_ok=True)
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            log_path = f"replays/logs/inference_recurrent_{timestamp}.jsonl"
-            logging.info(f"Logging actions to {log_path}")
-            log_fh = open(log_path, "a")
+    def preprocess_observation(self, observation):
+        # Normalize/convert HWC -> CHW (and NHWC -> NCHW) for numpy inputs and dict {"p1-view": HWC}
+        if isinstance(observation, dict):
+            img = observation.get("p1-view")
+            if img is None:
+                return super().preprocess_observation(observation)
+            img = np.asarray(img, dtype=np.float32)
+            if img.ndim == 3:
+                return np.transpose(img, (2, 0, 1))
+            return img.astype(np.float32)
 
-        obs = self.reset()  # VecEnv reset -> obs only
-        self.state = None  # LSTM hidden state
-        episode_start = np.ones((self.env.num_envs,), dtype=bool)
+        if isinstance(observation, (list, tuple)):
+            processed = []
+            for ob in observation:
+                if not isinstance(ob, dict) or "p1-view" not in ob:
+                    return super().preprocess_observation(observation)
+                img = np.asarray(ob["p1-view"], dtype=np.float32)
+                processed.append(np.transpose(img, (2, 0, 1)))
+            return np.stack(processed, axis=0)
 
-        total_reward = 0.0
-        steps = 0
-        done = False
-        infos = None
-        win = 0
+        if isinstance(observation, np.ndarray):
+            if observation.ndim == 3:
+                # HWC -> CHW
+                return np.transpose(observation.astype(np.float32), (2, 0, 1))
+            if observation.ndim == 4:
+                # NHWC -> NCHW
+                return np.transpose(observation.astype(np.float32), (0, 3, 1, 2))
+            return observation.astype(np.float32)
 
-        if hasattr(self, "printLogs") and self.printLogs:
-            print("Starting episode 1/1")
+        return observation
 
-        while not done:
-            action, self.state = self.model.predict(
-                obs,
-                state=self.state,
-                episode_start=episode_start,
-                deterministic=True,
+    def postprocess_action(self, model_output, agent_id=None):
+        # For this env the model_output can be passed through directly.
+        return model_output
+    
+    def calculate_reward(self, info):
+
+        info0 = info[0] if isinstance(info, (list, tuple)) else info
+        shaped_reward = 0.0
+
+        # base reward if present in info, otherwise 0
+        base_reward = float(info0.get("reward", 0.0)) if isinstance(info0, dict) else 0.0
+        shaped_reward += base_reward
+
+        # gather current tower HPs
+        players = info0.get("players", []) if isinstance(info0, dict) else []
+        cur_hps = {}
+        for p in players:
+            pid = p.get("player_id")
+            cur_hps[pid] = (
+                float(p.get("king_hp", 0.0)),
+                float(p.get("left_hp", 0.0)),
+                float(p.get("right_hp", 0.0)),
             )
 
-            obs, reward, done, infos = self.env.step(action)
+        # init trackers if missing
+        if self._prev_tower_hps is None:
+            self._prev_tower_hps = cur_hps.copy()
+            self._prev_time = float(info0.get("time", 0.0)) if isinstance(info0, dict) else 0.0
+            self._prev_elixir_waste = float(info0.get("elixir_waste", 0.0)) if isinstance(info0, dict) else 0.0
+            return shaped_reward
 
-            try:
-                reward_scalar = float(np.asarray(reward)[0])
-            except Exception:
-                reward_scalar = float(reward)
+        # 1) Defensive Tower Health Reward
+        r_tower = 0.0
+        for pid in cur_hps:
+            prev = self._prev_tower_hps.get(pid, (0.0, 0.0, 0.0))
+            cur = cur_hps[pid]
+            for i in range(3):
+                prev_hp = prev[i]
+                cur_hp = cur[i]
+                delta_h = max(0.0, prev_hp - cur_hp)
+                H = self._H_main if i == 0 else self._H_aux
+                sign = (-1) ** (pid + 1)
+                r_tower += sign * (delta_h / H)
+        shaped_reward += r_tower
 
-            total_reward += reward_scalar
-            steps += 1
+        # 2) Defensive Tower Destruction Reward
+        r_destroy = 0.0
+        for pid in cur_hps:
+            prev = self._prev_tower_hps.get(pid, (0.0, 0.0, 0.0))
+            cur = cur_hps[pid]
+            for i in range(3):
+                prev_hp = prev[i]
+                cur_hp = cur[i]
+                if prev_hp > 0.0 and cur_hp <= 0.0:
+                    base = 3.0 if i == 0 else 1.0
+                    sign = (-1) ** (pid + 1)
+                    r_destroy += sign * base
+        shaped_reward += r_destroy
 
-            info0 = infos[0] if isinstance(infos, (list, tuple)) else infos
+        # 3) Main Tower Activation Reward
+        r_activate = 0.0
+        for pid in cur_hps:
+            prev = self._prev_tower_hps.get(pid, (0.0, 0.0, 0.0))
+            cur = cur_hps[pid]
+            aux_prev_alive = prev[1] > 0.0 and prev[2] > 0.0
+            aux_cur_alive = cur[1] > 0.0 and cur[2] > 0.0
+            if aux_prev_alive and aux_cur_alive and not self._main_hit_seen.get(pid, False) and cur[0] < prev[0]:
+                sign = (-1) ** pid
+                r_activate += sign * 0.1
+                self._main_hit_seen[pid] = True
+        shaped_reward += r_activate
 
-            if hasattr(self, "printLogs") and self.printLogs:
-                print(f"Step: {steps}, Reward: {reward_scalar}")
-                # print(f"Observation: {obs}")
+        # 4) Elixir Overflow Penalty: -0.1 per full second of continued overflow
+        cur_elixir_waste = float(info0.get("elixir_waste", 0.0)) if isinstance(info0, dict) else 0.0
+        cur_time = float(info0.get("time", self._prev_time)) if isinstance(info0, dict) else self._prev_time
+        if cur_elixir_waste > self._prev_elixir_waste + 1e-9:
+            self._elixir_overflow_accum += (cur_time - self._prev_time)
 
-            players = info0.get("players", []) if isinstance(info0, dict) else []
-            for player in players:
-                elixir = player.get("elixir", "N/A")
-                hand = player.get("hand", "N/A")
-                crowns = player.get("crowns", "N/A")
-                if hasattr(self, "printLogs") and self.printLogs:
-                    print(
-                        f"Player {player.get('player_id', 'N/A')} - Elixir: {elixir}, Hand: {hand}, Crowns: {crowns}"
-                    )
-                if isinstance(elixir, (int, float)) and elixir < 0:
-                    print(f"Negative elixir detected for player {player.get('player_id', 'N/A')}: {elixir}")
-                    raise ValueError(f"Negative elixir detected for player {player.get('player_id', 'N/A')}: {elixir}")
+        penalty = 0.0
+        if self._elixir_overflow_accum >= 1.0:
+            n = int(self._elixir_overflow_accum)
+            penalty = 0.1 * n
+            self._elixir_overflow_accum -= n
 
-            entry = {
-                "tick": info0.get("tick") if isinstance(info0, dict) else None,
-                "time": info0.get("time") if isinstance(info0, dict) else None,
-                "last_action": info0.get("last_action") if isinstance(info0, dict) else None,
-                "players": players,
-                "reward": reward_scalar,
-            }
-            if hasattr(self, "printLogs") and self.printLogs and log_fh:
-                log_fh.write(json.dumps(entry) + "\n")
-                log_fh.flush()
+        shaped_reward -= penalty
 
-            def to_json_safe(x):
-                if isinstance(x, np.ndarray):
-                    return x.tolist()
-                if isinstance(x, (np.integer, np.floating)):
-                    return x.item()
-                if isinstance(x, dict):
-                    return {k: to_json_safe(v) for k, v in x.items()}
-                if isinstance(x, (list, tuple)):
-                    return [to_json_safe(v) for v in x]
-                return x
+        # update trackers
+        self._prev_tower_hps = cur_hps.copy()
+        self._prev_elixir_waste = cur_elixir_waste
+        self._prev_time = cur_time
 
-            try:
-                info_serializable = to_json_safe(info0)
-                os.makedirs("replays", exist_ok=True)
-                with open("replays/sample_info.json", "w") as info_fh:
-                    json.dump(info_serializable, info_fh, indent=4)
-            except Exception as e:
-                print(f"Failed to serialize info to JSON for sample_info.json: {e}")
+        return float(shaped_reward)
+    
+    def postprocess_reward(self, info):
+        shaped_reward = self.calculate_reward(info)
+        #also update parameters to shape state
 
-        final_info = infos[0] if isinstance(infos, (list, tuple)) else infos
-        players = final_info.get("players", []) if isinstance(final_info, dict) else []
-        if len(players) >= 2:
-            hp_map = {
-                p.get("player_id"): sum(
-                    float(x) for x in (p.get("king_hp", 0.0), p.get("left_hp", 0.0), p.get("right_hp", 0.0))
-                )
-                for p in players
-            }
-            our_hp = hp_map.get(0, 0.0)
-            opp_hp = hp_map.get(1, 0.0)
-            if our_hp > opp_hp:
-                win = 1
-
-        if hasattr(self, "printLogs") and self.printLogs:
-            print(f"Episode finished. Reward: {total_reward}, Steps: {steps}, Win: {win}/1")
-
-        if hasattr(self, "printLogs") and self.printLogs and log_fh:
-            log_fh.close()
-
-        print(f"Wins: {win}/1")
-        print(f"Average episode length: {float(steps):.2f} steps")
-
-        return float(total_reward)
+        return shaped_reward

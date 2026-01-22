@@ -4,12 +4,46 @@ From base.py import sim_game method to run the environment loop and log actions 
 from inference.wrappers.base import InferenceModel
 from inference.wrappers.ppo import PPOInferenceModel
 from inference.wrappers.recurrentppo import RecurrentPPOInferenceModel
+from inference.wrappers.randompolicy import RandomPolicy
 from stable_baselines3 import PPO
 from src.clasher.gym_env import ClashRoyaleGymEnv
 import logging
 import argparse
+import numpy as np
 
 import os
+import datetime
+import json
+
+"""
+Method for transposing observation - switches p0 and p1 views
+NOTE: Action transposition is handled within env step. See gym_env decode_and_deploy for implementation.
+"""
+
+def transpose_observation(observation):
+        """
+        Transpose observation to switch p0 <-> p1. 
+        DO NOT OVERRIDE! PASS IN ENV OUTPUT OBSERVATION, NOT PROCESSED!
+        """
+        """
+        Tranpose p0 and p1 obs
+        Rules - Switch p0 and p1
+        Switch entities ownership
+        Switch x,y -> x, mirror y 
+        """
+
+        arr = np.asarray(observation)
+        # print(arr)
+        trans = arr[::-1, :, :].copy()
+        
+        owner = trans[..., 0]
+        owner_new = owner.copy()
+        owner_new[owner == 255] = 128
+        owner_new[owner == 128] = 255
+        trans[..., 0] = owner_new
+        
+        return trans
+
 
 if __name__ == "__main__":
 
@@ -24,18 +58,21 @@ if __name__ == "__main__":
 
     # Example usage
     env = ClashRoyaleGymEnv()
-    #TODO - NOT ALWAYS PPO INFERENCE MODEL - MAKE SOME WAY TO SPECIFY
     if args.p0_model_type == "PPO":
-        model_p0 = PPOInferenceModel(env, printLogs=args.printLogs)
+        model_p0 = PPOInferenceModel()
     elif args.p0_model_type == "RecurrentPPO":
-        model_p0 = RecurrentPPOInferenceModel(env, printLogs=args.printLogs)
+        model_p0 = RecurrentPPOInferenceModel()
+    elif args.p0_model_type == "RandomPolicy":
+        model_p0 = RandomPolicy(env)
     model_p0.load_model(args.p0_model_path)
 
     #same for player 1
     if args.p1_model_type == "PPO":
-        model_p1 = PPOInferenceModel(env, printLogs=args.printLogs)
+        model_p1 = PPOInferenceModel()
     elif args.p1_model_type == "RecurrentPPO":
-        model_p1 = RecurrentPPOInferenceModel(env, printLogs=args.printLogs)
+        model_p1 = RecurrentPPOInferenceModel()
+    elif args.p1_model_type == "RandomPolicy":
+        model_p1 = RandomPolicy(env)
     model_p1.load_model(args.p1_model_path)
 
     logging.info("Both models loaded successfully.")
@@ -43,14 +80,18 @@ if __name__ == "__main__":
     """
     MAIN ENVIRONMENT SIM LOOP
     """
-    obs = self.reset()
+    obs, info = env.reset()
+    #TODO - This is an issue with the gym_env implementation. We're not making sure use of the multi agent dicts.
+    obs = obs["player_0"]  # Start with player 0's observation
+    info = info["player_0"]
     done = False
     num_steps = 0
 
-    if hasattr(self, 'printLogs') and self.printLogs:
+    if args.printLogs:
         # Set up logging
         logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
         logging.info("Environment reset. Starting the game loop.")
+
         # Prepare JSONL action log
         os.makedirs("replays/logs", exist_ok=True)
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -60,12 +101,37 @@ if __name__ == "__main__":
 
 
     while not done:
-        action = self.model.predict(obs)
-        obs, reward, done, info = self.env.step(action)
-        #TODO - maybe fix? little bit of a hack in case info returns as a list
-        info = info if isinstance(info, dict) else info[0]  # Handle VecEnv info format
+        # preprocess observations
+        obs_p0 = model_p0.preprocess_observation(obs)
+        obs_p1 = model_p1.preprocess_observation(transpose_observation(obs))
 
-        if hasattr(self, 'printLogs') and self.printLogs:
+        #get actions
+        action_p0 = model_p0.predict(obs_p0)
+        action_p1 = model_p1.predict(obs_p1)
+
+        #post process actions
+        action_p0 = model_p0.postprocess_action(action_p0)
+        action_p1 = model_p1.postprocess_action(action_p1)
+
+        observations, rewards, dones, truncateds, infos = env.step({
+            "player_0": action_p0,
+            "player_1": action_p1
+        })
+
+        #post process reward 
+        #NOTE: For now only processes reward for p0 agent
+        reward = model_p0.postprocess_reward(infos["player_0"])
+        rewards["player_0"] = reward
+        
+        #split out - really the same for each agent
+        obs = observations["player_0"]
+        reward = rewards["player_0"]
+        done = dones["player_0"]
+        truncated = truncateds["player_0"]
+        info = infos["player_0"]
+
+
+        if args.printLogs:            # Log step information
             logging.info(f"Step: {num_steps}, Reward: {reward}, Info: {info}")
 
             # Log observation details
@@ -93,7 +159,7 @@ if __name__ == "__main__":
             "players": info.get("players"),
             "reward": float(reward),
         }
-        if hasattr(self, 'printLogs') and self.printLogs:
+        if args.printLogs:
             log_fh.write(json.dumps(entry) + "\n")
             log_fh.flush()
 
@@ -124,7 +190,7 @@ if __name__ == "__main__":
 
 
 
-    if hasattr(self, 'printLogs') and self.printLogs:
+    if args.printLogs:
         logging.info("Game terminated. Exiting the loop.")
 
     logging.info("Simulation game ended.")

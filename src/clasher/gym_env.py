@@ -63,25 +63,6 @@ class ClashRoyaleGymEnv(gym.Env):
             return None
         np.random.seed(seed)
         return seed
-
-    def transpose_obs(self, obs):
-        """
-        Tranpose p0 and p1 obs
-        Rules - Switch p0 and p1
-        Switch entities ownership
-        Switch x,y -> x, mirror y 
-        """
-        arr = np.asarray(obs)
-        # Mirror Y (vertical flip)
-        trans = arr[::-1, :, :].copy()
-        # Swap ownership channel: 255 <-> 128 (leave 0/background alone)
-        owner = trans[..., 0]
-        p0_mask = owner == 255
-        p1_mask = owner == 128
-        owner[p0_mask] = 128
-        owner[p1_mask] = 255
-        trans[..., 0] = owner
-        return trans
         
 
     def reset(self, *, seed: Optional[int] = None, options: Optional[Dict] = None) -> Tuple[Dict[str, np.ndarray], Dict]:
@@ -170,59 +151,58 @@ class ClashRoyaleGymEnv(gym.Env):
         observations = {agent: obs for agent in self.agents}
         infos = {agent: info for agent in self.agents}
         return observations, infos
+    def decode_and_deploy(self, player_id: int, action: Optional[int] = None):
+        if action is None:
+            #make random action if none
+            action = self.action_space.sample()
 
+        card_idx = action // self.actions_per_tile
+        tile_index = action % self.actions_per_tile
+        x_tile = tile_index % self.tiles_x
+        y_tile = tile_index // self.tiles_x
+
+        # canonicalize Y coordinate so that player 0 always sees the bottom as 0
+        if player_id == 1:
+            y_tile = self.tiles_y - 1 - y_tile
+
+        # integer cast
+        card_idx = int(card_idx)
+        x_tile = int(x_tile)
+        y_tile = int(y_tile)
+
+        # safe card selection
+        hand = self.battle.players[player_id].hand
+        if card_idx < 0 or card_idx >= len(hand):
+            card_idx = 0
+        card_name = hand[card_idx]
+
+        # deploy position (center of tile)
+        deploy_x = float(x_tile + 0.5)
+        deploy_y = float(y_tile + 0.5)
+
+        action_success = self.engine.simulate_action(player_id, card_name, deploy_x, deploy_y)
+
+        return card_idx, card_name, x_tile, y_tile, deploy_x, deploy_y, action_success
     def step(self, actions: Dict[str, int]):
-        def decode_and_deploy(player_id: int, action: Optional[int] = None):
-            if action is None:
-                #pick some random int 
-                action = self.action_space.sample()
-            
-            card_idx = action // self.actions_per_tile
-            tile_index = action % self.actions_per_tile
-            x_tile = tile_index % self.tiles_x
-            y_tile = tile_index // self.tiles_x
+        
 
-            if player_id == 1:
-                #flip y tile for opponent
-                y_tile = (self.tiles_y - 1) - y_tile
-
-            #int casting
-            card_idx = int(card_idx)
-            x_tile = int(x_tile)
-            y_tile = int(y_tile)
-
-            # Choose card name from player hand (fall back safely)
-            hand = self.battle.players[player_id].hand
-            if card_idx < 0 or card_idx >= len(hand):
-                card_idx = 0
-            card_name = hand[card_idx]
-
-            # Convert to deploy position (center of tile)
-            deploy_x = float(x_tile + 0.5)
-            deploy_y = float(y_tile + 0.5)
-
-            # Attempt to deploy as player 0 and record whether it succeeded
-            action_success = self.engine.simulate_action(player_id, card_name, deploy_x, deploy_y)
-
-            return card_idx, card_name, x_tile, y_tile, deploy_x, deploy_y, action_success
 
         # Decode and deploy for both players
         action0 = actions.get("player_0", None)
         action1 = actions.get("player_1", None)
-        p0_card_idx, card_name, p0_x_tile, p0_y_tile, deploy_x, deploy_y, p0_action_success = decode_and_deploy(0, action0)
+        p0_card_idx, card_name, p0_x_tile, p0_y_tile, deploy_x, deploy_y, p0_action_success = self.decode_and_deploy(0, action0)
         
         #opponents action is flipped on the y axis
 
-        p1_card_idx, p1_card_name, p1_x_tile, p1_y_tile, p1_deploy_x, p1_deploy_y, p1_action_success = decode_and_deploy(1, action1)
-
+        p1_card_idx, p1_card_name, p1_x_tile, p1_y_tile, p1_deploy_x, p1_deploy_y, p1_action_success = self.decode_and_deploy(1, action1)
         # Advance simulation one tick
         self.battle.step(self.speed_factor)
         self._step_count += 1
 
         # Compute reward: reward is always for player_0
         observations = {agent: self._render_obs() for agent in self.agents}
-        #tranpose p1 obs
-        observations["player_1"] = self.transpose_obs(observations["player_0"])
+        #NOTE: COMMENTED BECAUSE THIS IS HANDLED IN THE INFERENCE SCRIPT - THIS DESIGN MAY CHANGE
+        # observations["player_1"] = self.transpose_obs(observations["player_0"])
         score = self._compute_score()
         reward = score - self._prev_score
         self._prev_score = score
@@ -303,7 +283,8 @@ class ClashRoyaleGymEnv(gym.Env):
         rewards = {"p0": float(reward), "p1": 0.0}
         terminations = {agent: terminated for agent in self.agents}
         truncations = {agent: truncated for agent in self.agents}
-        return observations, rewards, terminations, truncations, info
+        infos = {agent: info for agent in self.agents}
+        return observations, rewards, terminations, truncations, infos
 
     def render(self, mode: str = "rgb_array"):
         if mode == "rgb_array":
@@ -333,8 +314,6 @@ class ClashRoyaleGymEnv(gym.Env):
 
 
     def _render_obs(self) -> np.ndarray:
-        #TODO - ONE HOT ENCODING
-        #TODO - Some feature ideas: agent/opponent elixir leaked, time elapsed, hand predictions
         """Render a 128x128x3 observation tensor with channels:
 
         - channel 0: owner mask (255 for player0, 128 for player1, 0 background)
