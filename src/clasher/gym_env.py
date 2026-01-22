@@ -11,6 +11,7 @@ import gymnasium as gym
 from gymnasium import spaces
 from .engine import BattleEngine
 from .arena import TileGrid, Position
+from pettingzoo import ParallelEnv
 
 MAX_TOTAL_TOWER_HP = 12086  # 4824 + 2 * 3631
 
@@ -51,6 +52,10 @@ class ClashRoyaleGymEnv(gym.Env):
         # Mapping from unit type name to compact type id (1..254)
         self._type_to_id: Dict[str, int] = {}
         self._next_type_id = 1
+
+        #PettingZoo agents
+        self.agents = ["player_0", "player_1"]
+        self.possible_agents = self.agents[:]
         
 
     def seed(self, seed: Optional[int] = None):
@@ -58,6 +63,26 @@ class ClashRoyaleGymEnv(gym.Env):
             return None
         np.random.seed(seed)
         return seed
+
+    def transpose_obs(self, obs):
+        """
+        Tranpose p0 and p1 obs
+        Rules - Switch p0 and p1
+        Switch entities ownership
+        Switch x,y -> x, mirror y 
+        """
+        arr = np.asarray(obs)
+        # Mirror Y (vertical flip)
+        trans = arr[::-1, :, :].copy()
+        # Swap ownership channel: 255 <-> 128 (leave 0/background alone)
+        owner = trans[..., 0]
+        p0_mask = owner == 255
+        p1_mask = owner == 128
+        owner[p0_mask] = 128
+        owner[p1_mask] = 255
+        trans[..., 0] = owner
+        return trans
+        
 
     def reset(self, *, seed: Optional[int] = None, options: Optional[Dict] = None) -> Tuple[Dict[str, np.ndarray], Dict]:
         if seed is not None:
@@ -142,9 +167,11 @@ class ClashRoyaleGymEnv(gym.Env):
         info["players"] = players_meta
         info["elixir_waste"] = sum([getattr(p, 'elixir_wasted', 0.0) for p in self.battle.players])
 
-        return {"p1-view": obs}, info
+        observations = {agent: obs for agent in self.agents}
+        infos = {agent: info for agent in self.agents}
+        return observations, infos
 
-    def step(self, action: int):
+    def step(self, actions: Dict[str, int]):
         def decode_and_deploy(player_id: int, action: Optional[int] = None):
             if action is None:
                 #pick some random int 
@@ -154,6 +181,10 @@ class ClashRoyaleGymEnv(gym.Env):
             tile_index = action % self.actions_per_tile
             x_tile = tile_index % self.tiles_x
             y_tile = tile_index // self.tiles_x
+
+            if player_id == 1:
+                #flip y tile for opponent
+                y_tile = (self.tiles_y - 1) - y_tile
 
             #int casting
             card_idx = int(card_idx)
@@ -176,22 +207,27 @@ class ClashRoyaleGymEnv(gym.Env):
             return card_idx, card_name, x_tile, y_tile, deploy_x, deploy_y, action_success
 
         # Decode and deploy for both players
-        #TODO - SEPARATE DECISION MAKING SYSTEM FOR P0
-        p0_card_idx, card_name, p0_x_tile, p0_y_tile, deploy_x, deploy_y, p0_action_success = decode_and_deploy(0, action)
-        #TODO - P1 WILL ALWAYS PLAY RANDOM ACTIONS DUE TO NULL ACTION PASSING
-        p1_card_idx, p1_card_name, p1_x_tile, p1_y_tile, p1_deploy_x, p1_deploy_y, p1_action_success = decode_and_deploy(1)
+        action0 = actions.get("player_0", None)
+        action1 = actions.get("player_1", None)
+        p0_card_idx, card_name, p0_x_tile, p0_y_tile, deploy_x, deploy_y, p0_action_success = decode_and_deploy(0, action0)
+        
+        #opponents action is flipped on the y axis
+
+        p1_card_idx, p1_card_name, p1_x_tile, p1_y_tile, p1_deploy_x, p1_deploy_y, p1_action_success = decode_and_deploy(1, action1)
 
         # Advance simulation one tick
         self.battle.step(self.speed_factor)
         self._step_count += 1
 
-        # Compute observation, reward, termination
-        obs = self._render_obs()
+        # Compute reward: reward is always for player_0
+        observations = {agent: self._render_obs() for agent in self.agents}
+        #tranpose p1 obs
+        observations["player_1"] = self.transpose_obs(observations["player_0"])
         score = self._compute_score()
         reward = score - self._prev_score
         self._prev_score = score
 
-        terminated = bool(self.battle.game_over)
+        terminated = self.battle.game_over
         truncated = self._step_count >= self._max_steps
 
         info: Dict[str, Any] = {
@@ -263,7 +299,11 @@ class ClashRoyaleGymEnv(gym.Env):
         info["players"] = players_meta
         info["elixir_waste"] = sum([getattr(p, 'elixir_wasted', 0.0) for p in self.battle.players])
 
-        return {"p1-view": obs}, float(reward), terminated, truncated, info
+        #reshape for pettingzoo
+        rewards = {"p0": float(reward), "p1": 0.0}
+        terminations = {agent: terminated for agent in self.agents}
+        truncations = {agent: truncated for agent in self.agents}
+        return observations, rewards, terminations, truncations, info
 
     def render(self, mode: str = "rgb_array"):
         if mode == "rgb_array":

@@ -30,6 +30,7 @@ class PPOInferenceModel(InferenceModel):
         self.model = PPOInferenceModel(self.env)  # pass base env
         self.load_model(model_path)
     
+    
     def predict(self, observation):
         """
         Perform inference using the loaded model.
