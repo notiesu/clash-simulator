@@ -33,8 +33,88 @@ def collect_replay_datasets(page):
     for b in buttons:
         ds = b.evaluate("b => b.dataset")
         if ds and ds.get("replay"):
+            # Attach deck info found in the surrounding battle HTML (if present).
+            # This captures per-player 8-card deck blocks like: <div id="deck_card1,card2,...">
+            try:
+                ds["_decks"] = extract_decks_near_replay_button(b)
+            except Exception:
+                ds["_decks"] = []
             dsets.append(ds)
     return dsets
+
+
+def _normalize_tag_list(tag_field: str) -> list[str]:
+    """Parse RoyaleAPI dataset fields like '#TAG1,#TAG2' into ['TAG1','TAG2']"""
+    if not tag_field:
+        return []
+    parts = []
+    for raw in str(tag_field).split(","):
+        t = raw.strip()
+        if t.startswith("#"):
+            t = t[1:]
+        if t:
+            parts.append(t)
+    return parts
+
+
+def normalize_card_id(card: str) -> str:
+    if not card:
+        return card
+    # strip evolution suffixes like -ev1, -ev2, etc.
+    return re.sub(r"-ev\d+$", "", card)
+
+
+def _parse_deck_id(deck_div_id: str) -> list[str]:
+    if not deck_div_id or not deck_div_id.startswith("deck_"):
+        return []
+    deck_csv = deck_div_id[len("deck_"):]
+    cards = [
+        normalize_card_id(c.strip())
+        for c in deck_csv.split(",")
+        if c.strip()
+    ]
+    return cards[:8]
+
+
+def extract_decks_near_replay_button(button) -> list[dict]:
+    """
+    Given a Playwright element handle for button.replay_button, walk up the DOM
+    to the battle container, then extract per-player deck blocks.
+
+    Returns list like:
+      [{'player_tag': 'VJCJRJCG9', 'deck_id': 'deck_dart-goblin,...'}, ...]
+    """
+    return button.evaluate(
+        """(b) => {
+            // climb to a container that includes the team segments + deck blocks
+            let node = b;
+            for (let i = 0; i < 10; i++) {
+              if (!node) break;
+              const teamSegs = node.querySelectorAll ? node.querySelectorAll('div.team-segment') : [];
+              const deckDivs = node.querySelectorAll ? node.querySelectorAll('div[id^="deck_"]') : [];
+              if (teamSegs.length >= 1 && deckDivs.length >= 1) break;
+              node = node.parentElement;
+            }
+            if (!node || !node.querySelectorAll) return [];
+
+            const segs = Array.from(node.querySelectorAll('div.team-segment'));
+            const out = [];
+            for (const seg of segs) {
+              const a = seg.querySelector('a.player_name_header[href^="/player/"]');
+              const href = a ? a.getAttribute('href') : '';
+              const m = href ? href.match(/^\\/player\\/([A-Z0-9]+)\\//) : null;
+              const playerTag = m ? m[1] : null;
+
+              const deckDiv = seg.querySelector('div[id^="deck_"]');
+              const deckId = deckDiv ? deckDiv.getAttribute('id') : null;
+
+              if (playerTag && deckId && deckId.startsWith('deck_')) {
+                out.push({player_tag: playerTag, deck_id: deckId});
+              }
+            }
+            return out;
+        }"""
+    )
 
 
 def get_next_page_url(page) -> str | None:
@@ -133,18 +213,12 @@ def scrape_leaderboard_top_players(page, num_players: int) -> list[dict]:
 # Core per-player pipeline
 # ----------------------------
 def collect_replays_for_player(page, player_tag: str, target: int, *, max_pages: int = 200):
-    """
-    Navigates player battles pages and collects replay datasets up to target.
-    Returns:
-      ordered_replay_ids, replay_ds_by_id, referrer_by_id
-    """
     battles_url = f"{BASE}/player/{player_tag}/battles"
     page.goto(battles_url, wait_until="domcontentloaded", timeout=120_000)
 
     if "/login" in page.url:
         raise RuntimeError(f"Not logged in (redirected to /login) while loading player {player_tag}")
 
-    # Sometimes replay buttons appear only after a tiny scroll
     page.evaluate("window.scrollBy(0, Math.floor(window.innerHeight * 0.8))")
     time.sleep(0.3)
 
@@ -157,7 +231,6 @@ def collect_replays_for_player(page, player_tag: str, target: int, *, max_pages:
     max_stuck_rounds = 10
     page_hops = 0
 
-    # initial count print
     print(f"[{player_tag}] Replay buttons found (initial):", page.locator("button.replay_button[data-replay]").count())
 
     while len(seen_replays) < target and page_hops < max_pages:
@@ -183,10 +256,8 @@ def collect_replays_for_player(page, player_tag: str, target: int, *, max_pages:
 
         prev_btn_count = page.locator("button.replay_button[data-replay]").count()
 
-        # try next page
         if click_next_if_present(page):
             page_hops += 1
-            # small settle
             try:
                 page.wait_for_load_state("domcontentloaded", timeout=15_000)
             except PlaywrightTimeoutError:
@@ -195,7 +266,6 @@ def collect_replays_for_player(page, player_tag: str, target: int, *, max_pages:
             stuck_rounds = 0
             continue
 
-        # if no next page exists / cannot click it, attempt a deeper scroll then re-check once
         reveal_next_pagination(page, max_scrolls=25, sleep_s=0.2)
         if click_next_if_present(page):
             page_hops += 1
@@ -203,7 +273,6 @@ def collect_replays_for_player(page, player_tag: str, target: int, *, max_pages:
             stuck_rounds = 0
             continue
 
-        # no progress
         new_btn_count = page.locator("button.replay_button[data-replay]").count()
         if new_btn_count <= prev_btn_count:
             stuck_rounds += 1
@@ -229,7 +298,35 @@ def download_replays(page, player_tag: str, out_dir: Path, ordered_replay_ids, r
         if not resp.ok:
             print(f"[{player_tag}] FAIL replay {replay_id} status={resp.status}")
             continue
-        out_path.write_text(json.dumps(resp.json(), indent=2), encoding="utf-8")
+
+        payload = resp.json()
+
+        # Attach deck info scraped from the battles page HTML next to the replay button
+        deck_by_player = {}
+        for item in (ds.get("_decks") or []):
+            try:
+                ptag = item.get("player_tag")
+                deck_id = item.get("deck_id")
+                deck = _parse_deck_id(deck_id)
+                if ptag and deck:
+                    deck_by_player[ptag] = deck
+            except Exception:
+                pass
+
+        team_tags = _normalize_tag_list(ds.get("teamTags", ""))
+        opp_tags = _normalize_tag_list(ds.get("opponentTags", ""))
+
+        meta = {
+            "replay_id": replay_id,
+            "player_tag": player_tag,
+            "team_tags": team_tags,
+            "opponent_tags": opp_tags,
+            "team_decks": [deck_by_player.get(t) for t in team_tags],
+            "opponent_decks": [deck_by_player.get(t) for t in opp_tags],
+            "source_battles_url": referrer_by_id.get(replay_id, battles_url),
+        }
+
+        out_path.write_text(json.dumps({"meta": meta, "data": payload}, indent=2), encoding="utf-8")
         saved += 1
         time.sleep(max(0.0, float(sleep_s)))
     return saved
@@ -274,7 +371,6 @@ def main() -> int:
         )
         page = context.new_page()
 
-        # Login flow (only needs to happen once)
         page.goto(f"{BASE}/login?lang=en", wait_until="domcontentloaded")
         if not args.headless:
             print("\nLogin page opened in the browser.")
@@ -330,7 +426,6 @@ def main() -> int:
                 )
                 print(f"[{tag}] Saved {saved} replay files into {player_out}")
 
-                # a little pause between players to be polite
                 time.sleep(0.6)
 
             (batch_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
