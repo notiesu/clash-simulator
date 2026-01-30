@@ -3,7 +3,7 @@ import os
 import datetime
 import json
 import numpy as np
-from inference.wrappers.base import InferenceModel
+from src.clasher.model import InferenceModel
 from stable_baselines3.common.vec_env import DummyVecEnv
 from sb3_contrib import RecurrentPPO
 from scripts.train.ppo_wrapper import PPOObsWrapper

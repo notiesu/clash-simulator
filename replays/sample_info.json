@@ -1,67 +1,35 @@
 {
-    "tick": 6260,
-    "time": 206.5799999999733,
+    "tick": 8865,
+    "time": 292.544999999971,
     "last_action": {
         "player_0": {
             "card_idx": 1,
-            "card_name": "Balloon",
+            "card_name": "Wizard",
             "tile": [
-                1,
-                15
+                7,
+                16
             ],
             "position": [
-                1.5,
-                15.5
+                7.5,
+                16.5
             ],
             "success": false
         },
         "player_1": {
-            "card_idx": 2,
-            "card_name": "Giant",
+            "card_idx": 3,
+            "card_name": "Balloon",
             "tile": [
-                10,
-                15
+                1,
+                1
             ],
             "position": [
-                10.5,
-                15.5
+                1.5,
+                1.5
             ],
             "success": false
         }
     },
     "entities": [
-        {
-            "id": 3,
-            "type_name": "KingTower",
-            "type_id": 2,
-            "player_id": 0,
-            "position": [
-                9.0,
-                2.5
-            ],
-            "pixel": [
-                64,
-                10
-            ],
-            "hp": 4119.0,
-            "hp_frac": 0.8538557213930348
-        },
-        {
-            "id": 4,
-            "type_name": "Tower",
-            "type_id": 1,
-            "player_id": 1,
-            "position": [
-                3.5,
-                25.5
-            ],
-            "pixel": [
-                24,
-                102
-            ],
-            "hp": 102.0,
-            "hp_frac": 0.02809143486642798
-        },
         {
             "id": 5,
             "type_name": "Tower",
@@ -75,8 +43,8 @@
                 103,
                 102
             ],
-            "hp": 1111.0,
-            "hp_frac": 0.30597631506472045
+            "hp": 1229.0,
+            "hp_frac": 0.3384742495180391
         },
         {
             "id": 6,
@@ -91,168 +59,88 @@
                 64,
                 118
             ],
-            "hp": 4824.0,
-            "hp_frac": 1.0
+            "hp": 3528.0,
+            "hp_frac": 0.7313432835820896
         },
         {
-            "id": 585,
-            "type_name": "BabyDragon",
-            "type_id": 9,
-            "player_id": 0,
-            "position": [
-                6.154785155404188,
-                18.264340783147603
-            ],
-            "pixel": [
-                43,
-                73
-            ],
-            "hp": 722.0,
-            "hp_frac": 0.6186803770351328
-        },
-        {
-            "id": 603,
+            "id": 811,
             "type_name": "Musketeer",
-            "type_id": 7,
+            "type_id": 8,
             "player_id": 1,
             "position": [
-                14.49056982448368,
-                18.02003912297218
+                11.162561596302343,
+                8.077038166036331
             ],
             "pixel": [
-                103,
-                72
+                79,
+                32
             ],
-            "hp": 731.0,
-            "hp_frac": 1.0
+            "hp": 214.0,
+            "hp_frac": 0.292749658002736
         },
         {
-            "id": 604,
-            "type_name": "Musketeer",
-            "type_id": 7,
-            "player_id": 0,
-            "position": [
-                13.49918142540426,
-                10.163528797382945
-            ],
-            "pixel": [
-                95,
-                40
-            ],
-            "hp": 731.0,
-            "hp_frac": 1.0
-        },
-        {
-            "id": 616,
+            "id": 907,
             "type_name": "Knight",
             "type_id": 4,
-            "player_id": 0,
-            "position": [
-                12.6578592422133,
-                6.938460428484297
-            ],
-            "pixel": [
-                90,
-                27
-            ],
-            "hp": 1789.0,
-            "hp_frac": 1.0
-        },
-        {
-            "id": 619,
-            "type_name": "BabyDragon",
-            "type_id": 9,
             "player_id": 1,
             "position": [
-                14.553371639833983,
-                17.308991039557156
+                12.43145939730541,
+                10.914562343901506
             ],
             "pixel": [
-                103,
-                69
+                88,
+                43
             ],
-            "hp": 1167.0,
-            "hp_frac": 1.0
+            "hp": 790.0,
+            "hp_frac": 0.44158747903856904
         },
         {
-            "id": 620,
-            "type_name": "Minions",
-            "type_id": 5,
-            "player_id": 0,
+            "id": 960,
+            "type_name": "Archer",
+            "type_id": 6,
+            "player_id": 1,
             "position": [
-                7.655236427303142,
-                9.249131576443268
+                10.89782369610488,
+                24.373594082186806
             ],
             "pixel": [
-                54,
-                36
+                77,
+                97
             ],
-            "hp": 233.0,
-            "hp_frac": 1.0
-        },
-        {
-            "id": 621,
-            "type_name": "Minions",
-            "type_id": 5,
-            "player_id": 0,
-            "position": [
-                7.200496120434908,
-                9.72932041421529
-            ],
-            "pixel": [
-                51,
-                38
-            ],
-            "hp": 233.0,
-            "hp_frac": 1.0
-        },
-        {
-            "id": 622,
-            "type_name": "Minions",
-            "type_id": 5,
-            "player_id": 0,
-            "position": [
-                6.961183347365415,
-                8.86076582669076
-            ],
-            "pixel": [
-                49,
-                35
-            ],
-            "hp": 233.0,
-            "hp_frac": 1.0
+            "hp": 92.0,
+            "hp_frac": 0.2987012987012987
         }
     ],
     "players": [
         {
             "player_id": 0,
-            "elixir": 0.7042857142856791,
+            "elixir": 4.107857142857155,
             "elixir_waste": 0.0,
             "hand": [
-                "Archer",
-                "Balloon",
                 "Giant",
-                "Wizard"
+                "Wizard",
+                "BabyDragon",
+                "Balloon"
             ],
-            "crowns": 2,
-            "king_hp": 4119.0,
+            "crowns": 3,
+            "king_hp": 0.0,
             "left_hp": 0.0,
             "right_hp": 0.0
         },
         {
             "player_id": 1,
-            "elixir": 2.7042857142857244,
+            "elixir": 4.107857142857166,
             "elixir_waste": 0.0,
             "hand": [
-                "Knight",
-                "Balloon",
                 "Giant",
-                "Wizard"
+                "Wizard",
+                "BabyDragon",
+                "Balloon"
             ],
-            "crowns": 0,
-            "king_hp": 4824.0,
-            "left_hp": 102.0,
-            "right_hp": 1111.0
+            "crowns": 1,
+            "king_hp": 3528.0,
+            "left_hp": 0.0,
+            "right_hp": 1229.0
         }
     ],
     "elixir_waste": 0.0

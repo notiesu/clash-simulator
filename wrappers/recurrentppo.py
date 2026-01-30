@@ -3,13 +3,10 @@ import os
 import datetime
 import json
 import numpy as np
-from inference.wrappers.base import InferenceModel
+from src.clsaher.model import InferenceModel
 from stable_baselines3.common.vec_env import DummyVecEnv
 from sb3_contrib import RecurrentPPO
 from scripts.train.ppo_wrapper import PPOObsWrapper
-
-# filepath: /Users/fcp/Desktop/CLASHROYALE/clash-simulator/inference/wrappers/recurrentppo.py
-
 
 # try common locations for RecurrentPPO
 
@@ -38,7 +35,7 @@ class RecurrentPPOInferenceModel(InferenceModel):
             obs,
             state=self.state,
             episode_start=self.episode_start,
-            deterministic=True,
+            deterministic=False,
         )
         return action
 

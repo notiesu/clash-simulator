@@ -1,4 +1,4 @@
-from inference.wrappers.base import InferenceModel
+from src.clasher.model import InferenceModel
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 from scripts.train.ppo_wrapper import PPOObsWrapper

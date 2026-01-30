@@ -12,6 +12,7 @@ from gymnasium import spaces
 from .engine import BattleEngine
 from .arena import TileGrid, Position
 from pettingzoo import ParallelEnv
+from .model import InferenceModel
 
 MAX_TOTAL_TOWER_HP = 12086  # 4824 + 2 * 3631
 
@@ -56,13 +57,44 @@ class ClashRoyaleGymEnv(gym.Env):
         #PettingZoo agents
         self.agents = ["player_0", "player_1"]
         self.possible_agents = self.agents[:]
-        
+
+        # Set opponent policy - can embed within the environment step
+        # Opponent policy: either None (no embedded opponent) or an InferenceModel instance
+        self.opponent_policy: Optional[InferenceModel] = None
+
+    def set_opponent_policy(self, model: InferenceModel):
+        """Set an opponent policy model to be used for player 1 actions."""
+        self.opponent_policy = model
 
     def seed(self, seed: Optional[int] = None):
         if seed is None:
             return None
         np.random.seed(seed)
         return seed
+    
+    def transpose_observation(observation):
+        """
+        Transpose observation to switch p0 <-> p1. 
+        DO NOT OVERRIDE! PASS IN ENV OUTPUT OBSERVATION, NOT PROCESSED!
+        """
+        """
+        Tranpose p0 and p1 obs
+        Rules - Switch p0 and p1
+        Switch entities ownership
+        Switch x,y -> x, mirror y 
+        """
+
+        arr = np.asarray(observation)
+        # print(arr)
+        trans = arr[::-1, :, :].copy()
+        
+        owner = trans[..., 0]
+        owner_new = owner.copy()
+        owner_new[owner == 255] = 128
+        owner_new[owner == 128] = 255
+        trans[..., 0] = owner_new
+        
+        return trans
         
 
     def reset(self, *, seed: Optional[int] = None, options: Optional[Dict] = None) -> Tuple[Dict[str, np.ndarray], Dict]:
@@ -183,17 +215,23 @@ class ClashRoyaleGymEnv(gym.Env):
         action_success = self.engine.simulate_action(player_id, card_name, deploy_x, deploy_y)
 
         return card_idx, card_name, x_tile, y_tile, deploy_x, deploy_y, action_success
+
+    
     def step(self, actions: Dict[str, int]):
         
-
-
         # Decode and deploy for both players
         action0 = actions.get("player_0", None)
         action1 = actions.get("player_1", None)
         p0_card_idx, card_name, p0_x_tile, p0_y_tile, deploy_x, deploy_y, p0_action_success = self.decode_and_deploy(0, action0)
         
         #opponents action is flipped on the y axis
-
+        if action1 is None:
+            if self.opponent_policy is not None:
+                # Use the opponent policy model to select an action
+                opponent_obs = self.transpose_observation(self._render_obs())
+                action1 = self.opponent_policy.predict(opponent_obs)
+            else:
+                action1 = self.action_space.sample()
         p1_card_idx, p1_card_name, p1_x_tile, p1_y_tile, p1_deploy_x, p1_deploy_y, p1_action_success = self.decode_and_deploy(1, action1)
         # Advance simulation one tick
         self.battle.step(self.speed_factor)

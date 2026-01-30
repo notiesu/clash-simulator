@@ -1,10 +1,10 @@
 """
 From base.py import sim_game method to run the environment loop and log actions to a JSONL file.
 """
-from inference.wrappers.base import InferenceModel
-from inference.wrappers.ppo import PPOInferenceModel
-from inference.wrappers.recurrentppo import RecurrentPPOInferenceModel
-from inference.wrappers.randompolicy import RandomPolicy
+from wrappers.base import InferenceModel
+from wrappers.ppo import PPOInferenceModel
+from wrappers.recurrentppo import RecurrentPPOInferenceModel
+from wrappers.randompolicy import RandomPolicy
 from stable_baselines3 import PPO
 from src.clasher.gym_env import ClashRoyaleGymEnv
 import logging
