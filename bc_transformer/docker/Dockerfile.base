@@ -1,0 +1,34 @@
+cat > bc_transformer/docker/Dockerfile.base <<'EOF'
+# syntax=docker/dockerfile:1.4
+FROM mambaorg/micromamba:1.5.3
+
+USER root
+ENV PATH=/opt/conda/bin:$PATH
+
+RUN --mount=type=cache,target=/var/cache/apt \
+    --mount=type=cache,target=/var/lib/apt \
+    apt-get update && apt-get install -y \
+        build-essential \
+        python3-dev \
+        cmake \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --chown=mambauser:mambauser environment.yml requirements.txt ./
+
+RUN if [ -f environment.yml ]; then \
+        micromamba create -y -n appenv -f environment.yml; \
+    else \
+        micromamba create -y -n appenv python=3.11; \
+    fi \
+    && micromamba clean -a -y
+
+RUN mkdir -p ~/.cache/pip ~/.cache/mamba
+
+RUN --mount=type=cache,target=/home/mambauser/.cache/pip \
+    --mount=type=cache,target=/home/mambauser/.cache/mamba \
+    if [ -f requirements.txt ]; then \
+        micromamba run -n appenv pip install --no-cache-dir -r requirements.txt; \
+    fi
+
+SHELL ["micromamba", "run", "-n", "appenv", "/bin/bash", "-c"]
+EOF

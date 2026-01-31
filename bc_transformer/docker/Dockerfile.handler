@@ -1,0 +1,23 @@
+cat > bc_transformer/docker/Dockerfile.handler <<'EOF'
+# syntax=docker/dockerfile:1.4
+
+FROM bc-transformer-base:0.1
+
+USER root
+
+ENV VOLUME_DIR="/runpod-volume"
+ENV PATH=/opt/conda/bin:$PATH
+
+RUN mkdir -p ${VOLUME_DIR} && chown -R mambauser ${VOLUME_DIR}
+
+COPY --chown=mambauser:mambauser . /workspace
+WORKDIR /workspace
+
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+COPY docker/api-train.sh /api-train.sh
+RUN chmod +x /api-train.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
+EOF
