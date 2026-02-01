@@ -1,9 +1,9 @@
-from inference.wrappers.base import InferenceModel
+from src.clasher.model import InferenceModel
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 from scripts.train.ppo_wrapper import PPOObsWrapper
 
-
+#TODO - BROKEN - DOES NOT IMPLEMENT MULTIAGENT NEW INTERFACE
 class PPOInferenceModel(InferenceModel):
     def __init__(self, env, printLogs=False):
         super().__init__(env, printLogs)
@@ -29,6 +29,7 @@ class PPOInferenceModel(InferenceModel):
         """
         self.model = PPOInferenceModel(self.env)  # pass base env
         self.load_model(model_path)
+    
     
     def predict(self, observation):
         """

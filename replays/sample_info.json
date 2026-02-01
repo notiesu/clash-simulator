@@ -1,67 +1,35 @@
 {
-    "tick": 3685,
-    "time": 121.60500000000391,
+    "tick": 9091,
+    "time": 300.0029999999745,
     "last_action": {
         "player_0": {
-            "card_idx": 2,
-            "card_name": "Giant",
+            "card_idx": 3,
+            "card_name": "Wizard",
             "tile": [
-                5,
-                9
+                7,
+                12
             ],
             "position": [
-                5.5,
-                9.5
+                7.5,
+                12.5
             ],
             "success": false
         },
         "player_1": {
             "card_idx": 0,
-            "card_name": "Musketeer",
+            "card_name": "Archer",
             "tile": [
-                12,
-                22
+                4,
+                30
             ],
             "position": [
-                12.5,
-                22.5
+                4.5,
+                30.5
             ],
             "success": false
         }
     },
     "entities": [
-        {
-            "id": 1,
-            "type_name": "Tower",
-            "type_id": 1,
-            "player_id": 0,
-            "position": [
-                3.5,
-                6.5
-            ],
-            "pixel": [
-                24,
-                26
-            ],
-            "hp": 235.0,
-            "hp_frac": 0.06472046268245663
-        },
-        {
-            "id": 2,
-            "type_name": "Tower",
-            "type_id": 1,
-            "player_id": 0,
-            "position": [
-                14.5,
-                6.5
-            ],
-            "pixel": [
-                103,
-                26
-            ],
-            "hp": 2897.0,
-            "hp_frac": 0.7978518314513908
-        },
         {
             "id": 3,
             "type_name": "KingTower",
@@ -75,24 +43,24 @@
                 64,
                 10
             ],
-            "hp": 4824.0,
-            "hp_frac": 1.0
+            "hp": 3976.0,
+            "hp_frac": 0.824212271973466
         },
         {
-            "id": 4,
+            "id": 5,
             "type_name": "Tower",
             "type_id": 1,
             "player_id": 1,
             "position": [
-                3.5,
+                14.5,
                 25.5
             ],
             "pixel": [
-                24,
+                103,
                 102
             ],
-            "hp": 924.0,
-            "hp_frac": 0.25447535114293585
+            "hp": 1211.0,
+            "hp_frac": 0.3335169374827871
         },
         {
             "id": 6,
@@ -107,202 +75,233 @@
                 64,
                 118
             ],
-            "hp": 4824.0,
-            "hp_frac": 1.0
+            "hp": 4066.0,
+            "hp_frac": 0.8428689883913765
         },
         {
-            "id": 288,
+            "id": 850,
             "type_name": "Knight",
-            "type_id": 5,
-            "player_id": 0,
-            "position": [
-                4.668415060124097,
-                24.868606567116778
-            ],
-            "pixel": [
-                33,
-                99
-            ],
-            "hp": 454.0,
-            "hp_frac": 0.2537730575740637
-        },
-        {
-            "id": 298,
-            "type_name": "Knight",
-            "type_id": 5,
+            "type_id": 4,
             "player_id": 1,
             "position": [
-                14.5,
-                7.671000000000049
+                9.450930652564223,
+                3.600085056665276
             ],
             "pixel": [
-                103,
-                30
+                67,
+                14
             ],
-            "hp": 886.0,
-            "hp_frac": 0.49524874231414195
+            "hp": 384.0,
+            "hp_frac": 0.2146450531022918
         },
         {
-            "id": 305,
-            "type_name": "Archer",
+            "id": 938,
+            "type_name": "Knight",
+            "type_id": 4,
+            "player_id": 1,
+            "position": [
+                9.454733113880799,
+                3.594535894106796
+            ],
+            "pixel": [
+                67,
+                14
+            ],
+            "hp": 813.0,
+            "hp_frac": 0.4544438233650084
+        },
+        {
+            "id": 984,
+            "type_name": "Musketeer",
             "type_id": 6,
             "player_id": 0,
             "position": [
-                3.5,
-                20.50100000000014
+                3.7681530009498045,
+                10.916240489077154
             ],
             "pixel": [
-                24,
-                82
+                26,
+                43
             ],
-            "hp": 308.0,
-            "hp_frac": 1.0
+            "hp": 405.0,
+            "hp_frac": 0.5540355677154583
         },
         {
-            "id": 306,
-            "type_name": "Archer",
-            "type_id": 6,
-            "player_id": 0,
+            "id": 1007,
+            "type_name": "BabyDragon",
+            "type_id": 7,
+            "player_id": 1,
             "position": [
-                3.5,
-                20.50100000000014
+                7.188365488409552,
+                15.691146699264563
             ],
             "pixel": [
-                24,
-                82
+                51,
+                62
             ],
-            "hp": 308.0,
-            "hp_frac": 1.0
+            "hp": 784.0,
+            "hp_frac": 0.6718080548414739
         },
         {
-            "id": 332,
+            "id": 1008,
             "type_name": "BabyDragon",
             "type_id": 7,
             "player_id": 0,
             "position": [
-                11.568756408436627,
-                16.62436795071975
+                7.79341085955547,
+                12.253903184827895
             ],
             "pixel": [
-                82,
-                66
+                55,
+                49
             ],
-            "hp": 572.0,
-            "hp_frac": 0.49014567266495285
+            "hp": 344.0,
+            "hp_frac": 0.29477292202227934
         },
         {
-            "id": 352,
-            "type_name": "Archer",
-            "type_id": 6,
+            "id": 1015,
+            "type_name": "Minions",
+            "type_id": 3,
             "player_id": 1,
             "position": [
-                7.0037085613198125,
-                25.397112824790288
+                13.56817699532252,
+                23.67185614024016
             ],
             "pixel": [
-                49,
-                101
+                96,
+                94
             ],
-            "hp": 308.0,
+            "hp": 233.0,
             "hp_frac": 1.0
         },
         {
-            "id": 353,
-            "type_name": "Archer",
-            "type_id": 6,
+            "id": 1016,
+            "type_name": "Minions",
+            "type_id": 3,
             "player_id": 1,
             "position": [
-                6.011280732533393,
-                25.48877927826821
+                13.093125205354537,
+                24.15101775478983
             ],
             "pixel": [
-                42,
-                101
+                93,
+                96
             ],
-            "hp": 308.0,
+            "hp": 233.0,
             "hp_frac": 1.0
         },
         {
-            "id": 359,
-            "type_name": "KingTower",
-            "type_id": 2,
+            "id": 1017,
+            "type_name": "Minions",
+            "type_id": 3,
             "player_id": 1,
             "position": [
-                4.314817886530001,
-                24.851444464823416
+                12.981093817417912,
+                23.169866800292695
+            ],
+            "pixel": [
+                92,
+                92
+            ],
+            "hp": 233.0,
+            "hp_frac": 1.0
+        },
+        {
+            "id": 1022,
+            "type_name": "Minions",
+            "type_id": 3,
+            "player_id": 0,
+            "position": [
+                12.769839083637562,
+                14.788294293501712
+            ],
+            "pixel": [
+                90,
+                59
+            ],
+            "hp": 13.0,
+            "hp_frac": 0.055793991416309016
+        },
+        {
+            "id": 1023,
+            "type_name": "Minions",
+            "type_id": 3,
+            "player_id": 0,
+            "position": [
+                11.966414323864312,
+                14.580918334091244
+            ],
+            "pixel": [
+                85,
+                58
+            ],
+            "hp": 13.0,
+            "hp_frac": 0.055793991416309016
+        },
+        {
+            "id": 1024,
+            "type_name": "Minions",
+            "type_id": 3,
+            "player_id": 0,
+            "position": [
+                12.75886900690496,
+                14.71619484687784
+            ],
+            "pixel": [
+                90,
+                58
+            ],
+            "hp": 13.0,
+            "hp_frac": 0.055793991416309016
+        },
+        {
+            "id": 1036,
+            "type_name": "Knight",
+            "type_id": 4,
+            "player_id": 1,
+            "position": [
+                4.335254041721106,
+                17.25288106258165
             ],
             "pixel": [
                 30,
-                99
+                69
             ],
-            "hp": 1.0,
-            "hp_frac": 1.0
-        },
-        {
-            "id": 360,
-            "type_name": "Archer",
-            "type_id": 6,
-            "player_id": 0,
-            "position": [
-                3.5,
-                24.791000000000118
-            ],
-            "pixel": [
-                24,
-                99
-            ],
-            "hp": 1.0,
-            "hp_frac": 1.0
-        },
-        {
-            "id": 365,
-            "type_name": "Archer",
-            "type_id": 6,
-            "player_id": 0,
-            "position": [
-                3.5,
-                22.811000000000128
-            ],
-            "pixel": [
-                24,
-                91
-            ],
-            "hp": 1.0,
+            "hp": 1789.0,
             "hp_frac": 1.0
         }
     ],
     "players": [
         {
             "player_id": 0,
-            "elixir": 2.0078571428571355,
+            "elixir": 2.4350000000000165,
             "elixir_waste": 0.0,
             "hand": [
-                "Wizard",
+                "Knight",
                 "Balloon",
                 "Giant",
-                "Musketeer"
+                "Wizard"
             ],
-            "crowns": 0,
-            "king_hp": 4824.0,
-            "left_hp": 235.0,
-            "right_hp": 2897.0
+            "crowns": 2,
+            "king_hp": 3976.0,
+            "left_hp": 0.0,
+            "right_hp": 0.0
         },
         {
             "player_id": 1,
-            "elixir": 1.0078571428571328,
+            "elixir": 0.4350000000000147,
             "elixir_waste": 0.0,
             "hand": [
-                "Musketeer",
-                "Wizard",
+                "Archer",
+                "Balloon",
                 "Giant",
-                "Balloon"
+                "Wizard"
             ],
             "crowns": 1,
-            "king_hp": 4824.0,
-            "left_hp": 924.0,
-            "right_hp": 0.0
+            "king_hp": 4066.0,
+            "left_hp": 0.0,
+            "right_hp": 1211.0
         }
     ],
-    "elixir_waste": 0.0,
-    "TimeLimit.truncated": false
+    "elixir_waste": 0.0
 }

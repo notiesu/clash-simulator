@@ -64,6 +64,10 @@ fi
 
 cp -r output "$OUT_PATH"
 
+#remove the training dir
+rm -rf "./train"
+
+
 echo "Training completed successfully."
 echo "$OUT_PATH contents:"
 ls -la "$OUT_PATH/output"
