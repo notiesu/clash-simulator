@@ -40,15 +40,18 @@ class InferenceModel:
         Load the model from the specified path.
         This method should be implemented by subclasses.
         """
-
-        raise NotImplementedError("Subclasses must implement the load_model method.")
+        pass
     
     def predict(self, observation):
         """
         Perform inference using the loaded model.
         This method should be implemented by subclasses.
         """
-        if self.model_p0 is None or self.model_p1 is None:
-            raise ValueError("Models are not loaded. Please load the models before prediction.")
         raise NotImplementedError("Subclasses must implement the predict method.")
+    
+    def reset(self):
+        """
+        Reset any internal state (e.g., RNN states) at the start of a new episode.
+        """
+        pass
     

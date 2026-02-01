@@ -3,12 +3,15 @@
 This provides a minimal, working `ClashRoyaleGymEnv` implementation suitable
 for running the project's `helloworld.py` demo and for basic RL loops.
 """
+
+#TODO - Benchmark on tick times for latency
 import contextlib
 from typing import Tuple, Dict, Any, Optional
 
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
+from gymnasium.vector import AsyncVectorEnv
 from .engine import BattleEngine
 from .arena import TileGrid, Position
 from pettingzoo import ParallelEnv
@@ -26,7 +29,11 @@ class ClashRoyaleGymEnv(gym.Env):
 
     metadata = {"render_modes": ["rgb_array"]}
 
-    def __init__(self, speed_factor: float = 1.0, data_file: str = "gamedata.json", max_steps: int = 9090, suppress_output: bool = True):
+    def __init__(self, 
+                speed_factor: float = 1.0,
+                data_file: str = "gamedata.json",
+                max_steps: int = 9090,
+                suppress_output: bool = True):
         super().__init__()
         self.speed_factor = speed_factor
         self.data_file = data_file
@@ -54,10 +61,6 @@ class ClashRoyaleGymEnv(gym.Env):
         self._type_to_id: Dict[str, int] = {}
         self._next_type_id = 1
 
-        #PettingZoo agents
-        self.agents = ["player_0", "player_1"]
-        self.possible_agents = self.agents[:]
-
         # Set opponent policy - can embed within the environment step
         # Opponent policy: either None (no embedded opponent) or an InferenceModel instance
         self.opponent_policy: Optional[InferenceModel] = None
@@ -72,7 +75,7 @@ class ClashRoyaleGymEnv(gym.Env):
         np.random.seed(seed)
         return seed
     
-    def transpose_observation(observation):
+    def transpose_observation(self, observation):
         """
         Transpose observation to switch p0 <-> p1. 
         DO NOT OVERRIDE! PASS IN ENV OUTPUT OBSERVATION, NOT PROCESSED!
@@ -180,9 +183,8 @@ class ClashRoyaleGymEnv(gym.Env):
         info["players"] = players_meta
         info["elixir_waste"] = sum([getattr(p, 'elixir_wasted', 0.0) for p in self.battle.players])
 
-        observations = {agent: obs for agent in self.agents}
-        infos = {agent: info for agent in self.agents}
-        return observations, infos
+        return obs, info
+    
     def decode_and_deploy(self, player_id: int, action: Optional[int] = None):
         if action is None:
             #make random action if none
@@ -217,28 +219,29 @@ class ClashRoyaleGymEnv(gym.Env):
         return card_idx, card_name, x_tile, y_tile, deploy_x, deploy_y, action_success
 
     
-    def step(self, actions: Dict[str, int]):
+    def step(self, action: int):
         
         # Decode and deploy for both players
-        action0 = actions.get("player_0", None)
-        action1 = actions.get("player_1", None)
+        action0 = action
         p0_card_idx, card_name, p0_x_tile, p0_y_tile, deploy_x, deploy_y, p0_action_success = self.decode_and_deploy(0, action0)
         
         #opponents action is flipped on the y axis
-        if action1 is None:
-            if self.opponent_policy is not None:
-                # Use the opponent policy model to select an action
-                opponent_obs = self.transpose_observation(self._render_obs())
-                action1 = self.opponent_policy.predict(opponent_obs)
-            else:
-                action1 = self.action_space.sample()
+        if self.opponent_policy is not None:
+            # Use the opponent policy model to select an action
+            opponent_obs = self.transpose_observation(self._render_obs())
+            processed_opp_obs = self.opponent_policy.preprocess_observation(opponent_obs)
+
+            raw_action1 = self.opponent_policy.predict(processed_opp_obs)
+            action1 = self.opponent_policy.postprocess_action(raw_action1)
+        else:
+            action1 = self.action_space.sample()
         p1_card_idx, p1_card_name, p1_x_tile, p1_y_tile, p1_deploy_x, p1_deploy_y, p1_action_success = self.decode_and_deploy(1, action1)
         # Advance simulation one tick
         self.battle.step(self.speed_factor)
         self._step_count += 1
 
         # Compute reward: reward is always for player_0
-        observations = {agent: self._render_obs() for agent in self.agents}
+        observation = self._render_obs()
         #NOTE: COMMENTED BECAUSE THIS IS HANDLED IN THE INFERENCE SCRIPT - THIS DESIGN MAY CHANGE
         # observations["player_1"] = self.transpose_obs(observations["player_0"])
         score = self._compute_score()
@@ -318,13 +321,10 @@ class ClashRoyaleGymEnv(gym.Env):
         info["elixir_waste"] = sum([getattr(p, 'elixir_wasted', 0.0) for p in self.battle.players])
 
         #reshape for pettingzoo
-        rewards = {"p0": float(reward), "p1": 0.0}
-        terminations = {agent: terminated for agent in self.agents}
-        truncations = {agent: truncated for agent in self.agents}
-        infos = {agent: info for agent in self.agents}
-        return observations, rewards, terminations, truncations, infos
+        return observation, reward, terminated, truncated, info
 
     def render(self, mode: str = "rgb_array"):
+        #NOTE: DNU
         if mode == "rgb_array":
             return self._render_obs()
         return None
@@ -416,3 +416,45 @@ class ClashRoyaleGymEnv(gym.Env):
             img[y0:y1, x0:x1, 2] = int(hp_frac * 255)
 
         return img
+
+class ClashRoyaleVectorEnv(AsyncVectorEnv):
+    """Vectorized wrapper around multiple `ClashRoyaleGymEnv` instances.
+
+    This wrapper instantiates `num_envs` independent `ClashRoyaleGymEnv`
+    environments and exposes a simple batched `reset` / `step` API compatible
+    with `gymnasium.vector.VectorEnv`.
+
+    Notes:
+    - Actions must be a 1-D array-like of ints with shape `(num_envs,)` where
+        each entry is the discrete action for the corresponding environment's
+        `player_0` agent. The opponent action is left as `None` (the wrapped
+        env will either sample or use an internal opponent policy).
+    - Observations are returned as an array with shape
+        `(num_envs, H, W, C)` where `H,W,C` match the wrapped env's `obs_shape`.
+    """
+
+    def __init__(self,
+                    num_envs: int,
+                    opponent_policies: Optional[list[InferenceModel]] = None,
+                    **env_kwargs):
+        # Total number of environments
+        self.num_envs = num_envs
+        self.env_fns = []
+       
+        for i in range(self.num_envs):
+            def make_env(op_policy):
+                def _init():
+                    env = ClashRoyaleGymEnv(**env_kwargs)
+                    if op_policy:
+                        env.set_opponent_policy(op_policy)
+                    return env
+                return _init
+            opponent_policy = None
+            if opponent_policies:
+                opponent_policy = opponent_policies[i % len(opponent_policies)]
+
+            self.env_fns.append(make_env(opponent_policy))
+            
+
+        super().__init__(self.env_fns)
+

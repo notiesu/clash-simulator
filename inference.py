@@ -1,7 +1,7 @@
 """
 From base.py import sim_game method to run the environment loop and log actions to a JSONL file.
 """
-from wrappers.base import InferenceModel
+from src.clasher.model import InferenceModel
 from wrappers.ppo import PPOInferenceModel
 from wrappers.recurrentppo import RecurrentPPOInferenceModel
 from wrappers.randompolicy import RandomPolicy
@@ -19,31 +19,6 @@ import json
 Method for transposing observation - switches p0 and p1 views
 NOTE: Action transposition is handled within env step. See gym_env decode_and_deploy for implementation.
 """
-
-def transpose_observation(observation):
-        """
-        Transpose observation to switch p0 <-> p1. 
-        DO NOT OVERRIDE! PASS IN ENV OUTPUT OBSERVATION, NOT PROCESSED!
-        """
-        """
-        Tranpose p0 and p1 obs
-        Rules - Switch p0 and p1
-        Switch entities ownership
-        Switch x,y -> x, mirror y 
-        """
-
-        arr = np.asarray(observation)
-        # print(arr)
-        trans = arr[::-1, :, :].copy()
-        
-        owner = trans[..., 0]
-        owner_new = owner.copy()
-        owner_new[owner == 255] = 128
-        owner_new[owner == 128] = 255
-        trans[..., 0] = owner_new
-        
-        return trans
-
 
 if __name__ == "__main__":
 
@@ -81,11 +56,11 @@ if __name__ == "__main__":
     MAIN ENVIRONMENT SIM LOOP
     """
     obs, info = env.reset()
-    #TODO - This is an issue with the gym_env implementation. We're not making sure use of the multi agent dicts.
-    obs = obs["player_0"]  # Start with player 0's observation
-    info = info["player_0"]
     done = False
     num_steps = 0
+
+    #set opponent policy for env
+    env.set_opponent_policy(model_p1)
 
     if args.printLogs:
         # Set up logging
@@ -103,34 +78,22 @@ if __name__ == "__main__":
     while not done:
         # preprocess observations
         obs_p0 = model_p0.preprocess_observation(obs)
-        obs_p1 = model_p1.preprocess_observation(transpose_observation(obs))
 
         #get actions
         action_p0 = model_p0.predict(obs_p0)
-        action_p1 = model_p1.predict(obs_p1)
 
         #post process actions
         action_p0 = model_p0.postprocess_action(action_p0)
-        action_p1 = model_p1.postprocess_action(action_p1)
 
-        observations, rewards, dones, truncateds, infos = env.step({
-            "player_0": action_p0,
-            "player_1": action_p1
-        })
+        obs, reward, done, truncated, info = env.step(action_p0)
+
+        #env handles p1 action internally
 
         #post process reward 
         #NOTE: For now only processes reward for p0 agent
-        reward = model_p0.postprocess_reward(infos["player_0"])
-        rewards["player_0"] = reward
+        reward = model_p0.postprocess_reward(info)
         
         #split out - really the same for each agent
-        obs = observations["player_0"]
-        reward = rewards["player_0"]
-        done = dones["player_0"]
-        truncated = truncateds["player_0"]
-        info = infos["player_0"]
-
-
         if args.printLogs:            # Log step information
             logging.info(f"Step: {num_steps}, Reward: {reward}, Info: {info}")
 
@@ -187,7 +150,6 @@ if __name__ == "__main__":
                 logging.info("Keeping the existing content of sample_info.json.")
                 # just keep going though don't error out
         num_steps += 1
-
 
 
     if args.printLogs:

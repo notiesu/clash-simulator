@@ -3,7 +3,7 @@ import os
 import datetime
 import json
 import numpy as np
-from src.clsaher.model import InferenceModel
+from src.clasher.model import InferenceModel
 from stable_baselines3.common.vec_env import DummyVecEnv
 from sb3_contrib import RecurrentPPO
 from scripts.train.ppo_wrapper import PPOObsWrapper
@@ -14,8 +14,10 @@ from scripts.train.ppo_wrapper import PPOObsWrapper
 
 
 class RecurrentPPOInferenceModel(InferenceModel):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, model_path):
+        self.model = self.load_model(model_path)
+        if self.model is None:
+            raise ValueError(f"Failed to load RecurrentPPO model from {model_path}")
         self.state = None
         self.episode_start = None
         #some custom parameters for reward shaping
@@ -27,6 +29,17 @@ class RecurrentPPOInferenceModel(InferenceModel):
         self._H_main = 4824.0
         self._H_aux = 3631.0
 
+
+    def reset(self):
+        self.state = None
+        self.episode_start = None
+        self._prev_tower_hps = None
+        self._main_hit_seen = {0: False, 1: False}
+        self._prev_elixir_waste = 0.0
+        self._prev_time = 0.0
+        self._elixir_overflow_accum = 0.0
+
+    
     def load_model(self, model_path):
         self.model = RecurrentPPO.load(model_path)
 

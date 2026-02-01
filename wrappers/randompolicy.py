@@ -16,9 +16,8 @@ from scripts.train.ppo_wrapper import PPOObsWrapper
 # reuse the same observation wrapper used by PPO inference
 
 
-class RandomPolicy(InferenceModel):
+class RandomPolicyInferenceModel(InferenceModel):
     def __init__(self, env):
-        super().__init__()
         self.env = env
 
     def load_model(self, model_path):
