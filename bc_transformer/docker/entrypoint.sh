@@ -1,8 +1,5 @@
-cat > bc_transformer/docker/entrypoint.sh <<'EOF'
-#!/bin/sh
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-micromamba run -n appenv python handler.py
-EOF
-
-chmod +x bc_transformer/docker/entrypoint.sh
+cd /workspace
+exec python -u handler.py

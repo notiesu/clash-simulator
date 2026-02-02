@@ -60,8 +60,16 @@ def main():
     print(f"SAVE_PATH    = {save_path}")
     print("CMD:", " ".join(cmd))
 
-    # run and stream logs
-    subprocess.run(["/workspace/download_data.sh"], check=True)
+    # ---- dataset download (optional) ----
+    skip_download = os.environ.get("SKIP_DOWNLOAD", "").strip().lower() in ("1", "true", "yes", "on")
+    s3_uri = os.environ.get("S3_URI", "").strip()
+
+    if skip_download:
+        print("SKIP_DOWNLOAD=1 -> skipping dataset download")
+    elif s3_uri:
+        subprocess.run(["/workspace/download_data.sh"], check=True)
+    else:
+        print("S3_URI not set -> skipping dataset download (expect data already in TRAIN_JSONL/VAL_JSONL)")
 
     subprocess.run(cmd, check=True)
 

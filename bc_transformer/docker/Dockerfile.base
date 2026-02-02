@@ -1,17 +1,32 @@
-cat > bc_transformer/docker/Dockerfile.base <<'EOF'
 # syntax=docker/dockerfile:1.4
 FROM mambaorg/micromamba:1.5.3
 
 USER root
 ENV PATH=/opt/conda/bin:$PATH
 
-RUN --mount=type=cache,target=/var/cache/apt \
-    --mount=type=cache,target=/var/lib/apt \
-    apt-get update && apt-get install -y \
-        build-essential \
-        python3-dev \
-        cmake \
-    && rm -rf /var/lib/apt/lists/*
+RUN set -eux; \
+  printf '%s\n' \
+    "Types: deb" \
+    "URIs: http://snapshot.debian.org/archive/debian/20250101T000000Z" \
+    "Suites: bookworm bookworm-updates" \
+    "Components: main" \
+    "Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg" \
+    > /etc/apt/sources.list.d/debian.sources; \
+  printf '%s\n' \
+    "Types: deb" \
+    "URIs: http://snapshot.debian.org/archive/debian-security/20250101T000000Z" \
+    "Suites: bookworm-security" \
+    "Components: main" \
+    "Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg" \
+    > /etc/apt/sources.list.d/debian-security.sources; \
+  apt-get clean; \
+  rm -rf /var/lib/apt/lists/*; \
+  apt-get -o Acquire::Check-Valid-Until=false -o Acquire::http::Proxy=false -o Acquire::https::Proxy=false update; \
+  apt-get -o Acquire::http::Proxy=false -o Acquire::https::Proxy=false install -y --no-install-recommends \
+    build-essential \
+    python3-dev \
+    cmake; \
+  rm -rf /var/lib/apt/lists/*
 
 COPY --chown=mambauser:mambauser environment.yml requirements.txt ./
 
@@ -22,6 +37,8 @@ RUN if [ -f environment.yml ]; then \
     fi \
     && micromamba clean -a -y
 
+ENV PATH=/opt/conda/envs/appenv/bin:$PATH
+
 RUN mkdir -p ~/.cache/pip ~/.cache/mamba
 
 RUN --mount=type=cache,target=/home/mambauser/.cache/pip \
@@ -30,5 +47,9 @@ RUN --mount=type=cache,target=/home/mambauser/.cache/pip \
         micromamba run -n appenv pip install --no-cache-dir -r requirements.txt; \
     fi
 
+ENV MAMBA_DOCKERFILE_ACTIVATE=1
+
 SHELL ["micromamba", "run", "-n", "appenv", "/bin/bash", "-c"]
-EOF
+
+ENTRYPOINT ["micromamba", "run", "-n", "appenv"]
+CMD ["bash"]
