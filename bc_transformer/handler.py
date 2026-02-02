@@ -2,6 +2,7 @@ import os
 import time
 import subprocess
 from pathlib import Path
+import runpod
 
 
 def env(name: str, default: str) -> str:
@@ -9,7 +10,7 @@ def env(name: str, default: str) -> str:
     return v if (v is not None and str(v).strip() != "") else default
 
 
-def main():
+def handler(job):
     # ---- run metadata / output dir ----
     run_name = env("RUN_NAME", f"run_{time.strftime('%Y%m%d_%H%M%S')}")
     volume_dir = env("VOLUME_DIR", "/runpod-volume")

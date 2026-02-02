@@ -18,3 +18,4 @@ torchvision==0.25.0
 tqdm==4.67.1
 typing_extensions==4.15.0
 awscli
+runpod==1.8.1
