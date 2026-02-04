@@ -1,0 +1,29 @@
+# syntax=docker/dockerfile:1.4
+FROM ofredy/bc-base
+
+USER root
+
+ENV VOLUME_DIR="/runpod-volume"
+
+RUN mkdir -p "${VOLUME_DIR}" \
+ && chown -R mambauser:mambauser "${VOLUME_DIR}"
+
+COPY --chown=mambauser:mambauser . /workspace
+WORKDIR /workspace
+
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# keep your filename api-tool.sh, but install it into the container as /api-train.sh
+COPY api-tool.sh /api-train.sh
+RUN chmod +x /api-train.sh
+
+# IMPORTANT:
+# bc-base already has ENTRYPOINT = micromamba run -n appenv
+# so here we only set CMD to what should run by default
+# Run everything inside the micromamba env AND forward env vars
+# REMOVE this line entirely:
+# ENTRYPOINT ["micromamba", "run", "-n", "appenv", "-e"]
+
+CMD ["/entrypoint.sh"]
+
