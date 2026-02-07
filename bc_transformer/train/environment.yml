@@ -1,0 +1,12 @@
+name: appenv
+channels:
+  - defaults
+dependencies:
+  - python=3.10
+  - cmake
+  - make
+  - cxx-compiler
+  - c-compiler
+  - python=3.10
+
+prefix: /Users/feorella/miniconda3/envs/clash_bc

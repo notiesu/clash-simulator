@@ -1,0 +1,35 @@
+# syntax=docker/dockerfile:1.4
+FROM docker.io/ofredy/bc-base
+
+# Do root-only setup first
+USER root
+
+# Force micromamba to use the SAME root prefix as the base image
+ENV MAMBA_ROOT_PREFIX=/opt/conda
+ENV PATH=/opt/conda/bin:$PATH
+
+# RunPod volume (needs root to mkdir/chown)
+RUN mkdir -p /runpod-volume && chown -R mambauser:mambauser /runpod-volume
+
+# Switch back to the same user the base image expects
+USER mambauser
+WORKDIR /workspace
+
+# Copy project files
+COPY --chown=mambauser:mambauser . /workspace
+
+# Entrypoint + train wrapper scripts
+COPY --chown=mambauser:mambauser entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+COPY --chown=mambauser:mambauser api-tool.sh /api-train.sh
+RUN chmod +x /api-train.sh
+RUN ln -sf /api-train.sh /workspace/api-train.sh
+
+# Ensure runpod is installed in the base env (torch should already be in bc-base)
+RUN micromamba run -n base pip install --no-cache-dir runpod && \
+    micromamba run -n base python -c "import torch; print('torch ok:', torch.__version__)"
+
+# Override any inherited ENTRYPOINT from upstream images
+ENTRYPOINT ["/entrypoint.sh"]
+CMD []

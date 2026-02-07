@@ -1,0 +1,27 @@
+# syntax=docker/dockerfile:1.4
+FROM mambaorg/micromamba:1.5.6
+
+WORKDIR /workspace
+
+# Force the prefix
+ENV MAMBA_ROOT_PREFIX=/opt/conda
+ENV PATH=/opt/conda/bin:$PATH
+
+# Copy deps
+COPY environment.yml /tmp/environment.yml
+COPY requirements.txt /tmp/requirements.txt
+
+# Install conda deps (ok as mambauser)
+USER mambauser
+RUN micromamba install -y -n base -f /tmp/environment.yml && \
+    micromamba clean --all --yes
+
+# Install pip deps INTO /opt/conda (do as root so pip can't "user-install")
+USER root
+RUN micromamba run -n base pip install --no-cache-dir --upgrade --no-user -r /tmp/requirements.txt
+
+# Sanity check (still as root is fine)
+RUN micromamba run -n base python -c "import torch; print('torch ok:', torch.__version__)"
+
+# Go back to mambauser for runtime
+USER mambauser
