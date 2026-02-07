@@ -1,188 +1,138 @@
-import argparse
+import logging
 import time
-import torch
-import torch.nn as nn
-from sb3_contrib import RecurrentPPO
-from wrappers.recurrentppo import RecurrentPPOInferenceModel
-from src.clasher.gym_env import ClashRoyaleGymEnv
+import numpy as np
+import onnxruntime as ort
+
+from src.clasher.model import InferenceModel
 
 
-"""Export a sb3_contrib.RecurrentPPO policy to ONNX.
-
-The exporter will attempt to build a small wrapper around the learned
-policy that accepts:
- - `obs` : input observation tensor (batch, C, H, W) float32
- - `lstm_h`, `lstm_c` : LSTM hidden/cell states (num_layers, batch, hidden_size)
- - `episode_starts` : bool tensor (batch,)
-
-The wrapper runs feature extraction -> mlp_extractor -> LSTM (if present)
--> action head and returns action logits and the new LSTM states.
-"""
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 
-def build_policy_wrapper(policy):
-	class PolicyWrapper(nn.Module):
-		def __init__(self, policy):
-			super().__init__()
-			self.policy = policy
+class RecurrentPPOONNXInferenceModel(InferenceModel):
+    def __init__(self, onnx_path, deterministic=True, player_id=0, use_cuda=True):
+        self.onnx_path = onnx_path
+        self.deterministic = deterministic
+        self.player_id = player_id
 
-		def forward(self, obs, lstm_h, lstm_c, episode_starts):
-			# obs: Tensor [batch, C, H, W] or [batch, obs_dim]
-			x = obs
-			# feature extractor
-			if hasattr(self.policy, "extract_features"):
-				features = self.policy.extract_features(x)
-			elif hasattr(self.policy, "features_extractor"):
-				features = self.policy.features_extractor(x)
-			else:
-				# some policies expose _get_latent or similar
-				try:
-					features = self.policy._get_features(x)
-				except Exception:
-					features = x
+        self._load_onnx()
+        self.reset()
 
-			# mlp extractor
-			if hasattr(self.policy, "mlp_extractor"):
-				try:
-					latent_pi, latent_vf = self.policy.mlp_extractor(features)
-				except Exception:
-					# fallback: single latent
-					latent_pi = features
-			else:
-				latent_pi = features
+        print("RecurrentPPO ONNX inference initialized")
 
-			# handle recurrent LSTM if present
-			if hasattr(self.policy, "lstm") and self.policy.lstm is not None:
-				lstm = self.policy.lstm
-				# prepare input shape: LSTM expects (seq_len, batch, features)
-				inp = latent_pi.unsqueeze(0) if latent_pi.dim() == 2 else latent_pi
-				# try calling lstm with or without episode_starts
-				try:
-					out, (h_n, c_n) = lstm(inp, (lstm_h, lstm_c))
-				except TypeError:
-					out, (h_n, c_n) = lstm(inp, (lstm_h, lstm_c), episode_starts)
-				latent_pi = out.squeeze(0)
-			else:
-				h_n = lstm_h
-				c_n = lstm_c
+        for inp in self.session.get_inputs():
+            print(f"Input name: {inp.name}, shape: {inp.shape}, type: {inp.type}")
 
-			# action head
-			if hasattr(self.policy, "action_net"):
-				action_logits = self.policy.action_net(latent_pi)
-			else:
-				# try common alternatives
-				if hasattr(self.policy, "actor"):
-					action_logits = self.policy.actor(latent_pi)
-				else:
-					# last-resort: return latent as logits
-					action_logits = latent_pi
+    # ------------------- ONNX SETUP -------------------
 
-			return action_logits, h_n, c_n
+    def _load_onnx(self):
+        providers = ["CPUExecutionProvider"]
 
-	return PolicyWrapper(policy)
+        if use_cuda := (ort.get_device() == "GPU"):
+            providers.insert(0, "CUDAExecutionProvider")
 
+        self.session = ort.InferenceSession(
+            self.onnx_path,
+            providers=providers,
+        )
 
-def main():
-	p = argparse.ArgumentParser()
-	p.add_argument("model", help="Path to the RecurrentPPO .zip model file")
-	p.add_argument("out", help="Output ONNX filename")
-	p.add_argument("--device", choices=["cpu","cuda"], default=None)
-	p.add_argument("--opset", type=int, default=14)
-	p.add_argument("--fp16", action="store_true", help="Export in fp16 (half) precision when possible")
-	args = p.parse_args()
+        self.input_names = {i.name for i in self.session.get_inputs()}
+        self.output_names = [o.name for o in self.session.get_outputs()]
 
-	model_path = args.model
-	out_path = args.out
+        print(f"Loaded ONNX model from {self.onnx_path}")
+        print(f"Providers: {self.session.get_providers()}")
 
-	# load model
-	print(f"Loading model {model_path}")
-	model = RecurrentPPO.load(model_path)
-	policy = model.policy
+    # ------------------- STATE -------------------
 
-	# build env to obtain observation shape
-	env = PPOObsWrapper(ClashRoyaleGymEnv())
-	sample_obs = env.reset()[0]
-	# policy expects float tensors in NCHW
-	obs_np = sample_obs
-	obs_shape = obs_np.shape
+    def reset(self):
+        self.episode_start = np.array([True], dtype=np.bool_)
 
-	# default device choice
-	if args.device is None:
-		device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-	else:
-		device = torch.device(args.device)
+        # LSTM states: (n_layers, batch, hidden)
+        self.pi_h = None
+        self.pi_c = None
+        self.vf_h = None
+        self.vf_c = None
 
-	wrapper = build_policy_wrapper(policy)
-	wrapper.eval()
-	wrapper.to(device)
+        # reward shaping state
+        self._prev_tower_hps = None
+        self._main_hit_seen = {0: False, 1: False}
+        self._prev_elixir_waste = 0.0
+        self._prev_time = 0.0
+        self._elixir_overflow_accum = 0.0
 
-	# lstm state sizes
-	if hasattr(policy, "lstm") and policy.lstm is not None:
-		lstm = policy.lstm
-		# try to infer num_layers and hidden_size
-		try:
-			num_layers = lstm.num_layers
-			hidden_size = lstm.hidden_size
-		except Exception:
-			# fallback to common attr
-			num_layers = 1
-			hidden_size = getattr(lstm, "hidden_size", 512)
-	else:
-		num_layers = 0
-		hidden_size = 0
+    def _init_lstm(self, shape):
+        # replace symbolic dims with 1
+        shape_fixed = tuple(1 if isinstance(x, str) else x for x in shape)
+        zero = np.zeros(shape_fixed, dtype=np.float32)
+        return zero, zero
 
-	# build example inputs
-	batch = 1
-	obs_tensor = torch.zeros((batch, *obs_shape), dtype=torch.float32, device=device)
-	if args.fp16:
-		obs_tensor = obs_tensor.half()
+    # ------------------- INFERENCE -------------------
 
-	if num_layers > 0:
-		lstm_h = torch.zeros((num_layers, batch, hidden_size), dtype=torch.float32, device=device)
-		lstm_c = torch.zeros((num_layers, batch, hidden_size), dtype=torch.float32, device=device)
-		if args.fp16:
-			lstm_h = lstm_h.half(); lstm_c = lstm_c.half()
-	else:
-		# placeholders
-		lstm_h = torch.zeros((1, batch, 1), dtype=torch.float32, device=device)
-		lstm_c = torch.zeros((1, batch, 1), dtype=torch.float32, device=device)
+    def predict(self, obs):
+        obs = np.expand_dims(obs, axis=0) if obs.ndim == 3 else obs
 
-	episode_starts = torch.zeros((batch,), dtype=torch.bool, device=device)
+        if self.pi_h is None:
+            # infer LSTM shape from model inputs
+            pi_h_shape = self.session.get_inputs()[1].shape
+            self.pi_h, self.pi_c = self._init_lstm(pi_h_shape)
+            self.vf_h, self.vf_c = self._init_lstm(pi_h_shape)
 
-	# try an export
-	print(f"Exporting to {out_path} on device {device} opset={args.opset} fp16={args.fp16}")
-	dynamic_axes = {
-		'obs': {0: 'batch'},
-		'lstm_h': {1: 'batch'},
-		'lstm_c': {1: 'batch'},
-		'episode_starts': {0: 'batch'},
-		'action_logits': {0: 'batch'}
-	}
+        inputs = {
+            "obs": obs.astype(np.float32),
+            "pi_h": self.pi_h,
+            "pi_c": self.pi_c,
+            "vf_h": self.vf_h,
+            "vf_c": self.vf_c,
+        }
 
-	# wrap inputs for export names
-	input_names = ['obs', 'lstm_h', 'lstm_c', 'episode_starts']
-	output_names = ['action_logits', 'lstm_h_out', 'lstm_c_out']
+        outputs = self.session.run(None, inputs)
 
-	# convert wrapper to fp16 if requested
-	export_wrapper = wrapper.half() if args.fp16 else wrapper
+        (
+            actions,
+            new_pi_h, new_pi_c,
+            new_vf_h, new_vf_c,
+        ) = outputs
 
-	try:
-		torch.onnx.export(
-			export_wrapper,
-			(obs_tensor, lstm_h, lstm_c, episode_starts),
-			out_path,
-			input_names=input_names,
-			output_names=output_names,
-			dynamic_axes=dynamic_axes,
-			opset_version=args.opset,
-			do_constant_folding=True,
-		)
-		print("ONNX export successful")
-	except Exception as e:
-		print("ONNX export failed:", e)
+        self.pi_h, self.pi_c = new_pi_h, new_pi_c
+        self.vf_h, self.vf_c = new_vf_h, new_vf_c
+        self.episode_start[:] = False
+
+        return actions[0]
+
+    # ------------------- PERF -------------------
+
+    def perf_test(self, obs, n=500):
+        start = time.perf_counter()
+        for _ in range(n):
+            self.predict(obs)
+        end = time.perf_counter()
+        print(f"ONNX inference: {n} steps in {end - start:.4f}s")
+
+    # ------------------- OBS / ACTION -------------------
+
+    def preprocess_observation(self, observation):
+        print(f"Preprocessing observation of type {type(observation)} and shape {getattr(observation, 'shape', 'N/A')}")
+        if isinstance(observation, dict):
+            arr = np.asarray(observation["p1-view"], dtype=np.float32)
+            # HWC -> CHW
+            if arr.ndim == 3:
+                arr = np.transpose(arr, (2, 0, 1))
+            # add batch dim
+            arr = np.expand_dims(arr, axis=0)
+            return arr
+        if isinstance(observation, np.ndarray):
+            if observation.ndim == 3:
+                # HWC -> CHW
+                arr = np.transpose(observation.astype(np.float32), (2, 0, 1))
+                arr = np.expand_dims(arr, axis=0)
+                return arr
+            if observation.ndim == 4:
+                # NHWC -> NCHW
+                arr = np.transpose(observation.astype(np.float32), (0, 3, 1, 2))
+                return arr
+        return observation
 
 
-if __name__ == "__main__":
-	main()
-
-
+    def postprocess_action(self, model_output, agent_id=None):
+        return model_output
