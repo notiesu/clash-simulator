@@ -75,6 +75,13 @@ class ManualController(BattleVisualizer):
                 self.env.set_opponent_policy(self.opponent)
             except Exception as e:
                 print(f"Failed loading recurrent model: {e}")
+        elif opponent_type == "recurrent_onnx":
+            from wrappers.rppo_onnx import RecurrentPPOONNXInferenceModel
+            try:
+                self.opponent = RecurrentPPOONNXInferenceModel(model_path)
+                self.env.set_opponent_policy(self.opponent)
+            except Exception as e:
+                print(f"Failed loading ONNX model: {e}")
 
         # UI layout for hand cards
         self.ui_card_rects = []
@@ -462,7 +469,7 @@ class ManualController(BattleVisualizer):
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--opponent", choices=["none", "random", "recurrent"], default="none")
+    p.add_argument("--opponent", choices=["none", "random", "recurrent", "recurrent_onnx"], default="none")
     p.add_argument("--model", type=str, default=None, help="Path to opponent model (for recurrent)")
     p.add_argument("--turn_based", action="store_true", help="Run in turn-based mode; press N to advance one tick")
     p.add_argument("--step-count", type=int, default=1, help="Default number of ticks to advance per step (N or STEP)")

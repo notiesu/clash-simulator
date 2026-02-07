@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.INFO)
 
 class RecurrentPPOONNXInferenceModel(InferenceModel):
     def __init__(self, onnx_path, deterministic=True, player_id=0, use_cuda=True):
-        self.onnx_path = onnx_path
+        self.load_model(onnx_path)
         self.deterministic = deterministic
         self.player_id = player_id
 
@@ -26,7 +26,7 @@ class RecurrentPPOONNXInferenceModel(InferenceModel):
 
     # ------------------- ONNX SETUP -------------------
 
-    def _load_onnx(self):
+    def load_model(self, model_path):
         providers = ["CPUExecutionProvider"]
 
         if use_cuda := (ort.get_device() == "GPU"):
@@ -40,7 +40,7 @@ class RecurrentPPOONNXInferenceModel(InferenceModel):
         self.input_names = {i.name for i in self.session.get_inputs()}
         self.output_names = [o.name for o in self.session.get_outputs()]
 
-        print(f"Loaded ONNX model from {self.onnx_path}")
+        print(f"Loaded ONNX model from {self.model_path}")
         print(f"Providers: {self.session.get_providers()}")
 
     # ------------------- STATE -------------------
@@ -48,18 +48,19 @@ class RecurrentPPOONNXInferenceModel(InferenceModel):
     def reset(self):
         self.episode_start = np.array([True], dtype=np.bool_)
 
-        # LSTM states: (n_layers, batch, hidden)
-        self.pi_h = None
-        self.pi_c = None
-        self.vf_h = None
-        self.vf_c = None
-
         # reward shaping state
         self._prev_tower_hps = None
         self._main_hit_seen = {0: False, 1: False}
         self._prev_elixir_waste = 0.0
         self._prev_time = 0.0
         self._elixir_overflow_accum = 0.0
+
+        # reset LSTM at new episode
+        self.pi_h.fill(0)
+        self.pi_c.fill(0)
+        self.vf_h.fill(0)
+        self.vf_c.fill(0)
+
 
     def _init_lstm(self, shape):
         # replace symbolic dims with 1

@@ -5,6 +5,7 @@ from src.clasher.model import InferenceModel
 from wrappers.ppo import PPOInferenceModel
 from wrappers.recurrentppo import RecurrentPPOInferenceModel
 from wrappers.randompolicy import RandomPolicy
+from wrappers.rppo_onnx import RecurrentPPOONNXInferenceModel
 from stable_baselines3 import PPO
 from src.clasher.gym_env import ClashRoyaleGymEnv
 import logging
@@ -39,6 +40,8 @@ if __name__ == "__main__":
         model_p0 = RecurrentPPOInferenceModel()
     elif args.p0_model_type == "RandomPolicy":
         model_p0 = RandomPolicy(env)
+    elif args.po_model_type == "RecurrentPPOONNX":
+        model_p0 = RecurrentPPOONNXInferenceModel(args.p0_model_path)
     model_p0.load_model(args.p0_model_path)
 
     #same for player 1
@@ -48,6 +51,8 @@ if __name__ == "__main__":
         model_p1 = RecurrentPPOInferenceModel()
     elif args.p1_model_type == "RandomPolicy":
         model_p1 = RandomPolicy(env)
+    elif args.p1_model_type == "RecurrentPPOONNX":
+        model_p1 = RecurrentPPOONNXInferenceModel(args.p1_model_path)
     model_p1.load_model(args.p1_model_path)
 
     logging.info("Both models loaded successfully.")
