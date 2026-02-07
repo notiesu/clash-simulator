@@ -306,7 +306,7 @@ def main():
                         help="card = train card head only, gate = train gate head only, joint = train both")
 
     parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--history_len", type=int, default=20)
     parser.add_argument("--device", type=str, default="cuda")
@@ -477,15 +477,25 @@ def main():
             val_g = evaluate_gate(model, val_loader, device)
             val_c = evaluate_card(model, val_loader, device)
             print(
-                f"[Epoch {epoch:02d}] "
+                f"[Epoch {epoch:02d}/{args.epochs}] "
                 f"Train loss: {train_loss:.4f}, acc: {train_acc:.4f} | "
                 f"ValGate loss: {val_g['loss']:.4f}, acc: {val_g['acc']:.4f}, pred_play: {val_g['pred_play_rate']:.3f} | "
                 f"ValCard loss: {val_c['loss']:.4f}, acc: {val_c['acc']:.4f}, top3: {val_c['top3']:.4f} | "
                 f"n={int(val_g['n'])}"
             )
 
-    torch.save(model.state_dict(), args.save_path)
-    print(f"Model saved to {args.save_path}")
+    save_path = Path(args.save_path)
+
+    # If save_path is a directory, save into it
+    if save_path.exists() and save_path.is_dir():
+        save_file = save_path / "model_state_dict.pt"
+    else:
+        # If it's not an existing dir, treat it as a file path
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        save_file = save_path
+
+    torch.save(model.state_dict(), str(save_file))
+    print(f"Model saved to {save_file}")
 
 
 if __name__ == "__main__":

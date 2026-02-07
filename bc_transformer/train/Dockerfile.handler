@@ -1,29 +1,35 @@
 # syntax=docker/dockerfile:1.4
-FROM ofredy/bc-base
+FROM docker.io/ofredy/bc-base
 
+# Do root-only setup first
 USER root
 
-ENV VOLUME_DIR="/runpod-volume"
+# Force micromamba to use the SAME root prefix as the base image
+ENV MAMBA_ROOT_PREFIX=/opt/conda
+ENV PATH=/opt/conda/bin:$PATH
 
-RUN mkdir -p "${VOLUME_DIR}" \
- && chown -R mambauser:mambauser "${VOLUME_DIR}"
+# RunPod volume (needs root to mkdir/chown)
+RUN mkdir -p /runpod-volume && chown -R mambauser:mambauser /runpod-volume
 
-COPY --chown=mambauser:mambauser . /workspace
+# Switch back to the same user the base image expects
+USER mambauser
 WORKDIR /workspace
 
-COPY entrypoint.sh /entrypoint.sh
+# Copy project files
+COPY --chown=mambauser:mambauser . /workspace
+
+# Entrypoint + train wrapper scripts
+COPY --chown=mambauser:mambauser entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# keep your filename api-tool.sh, but install it into the container as /api-train.sh
-COPY api-tool.sh /api-train.sh
+COPY --chown=mambauser:mambauser api-tool.sh /api-train.sh
 RUN chmod +x /api-train.sh
+RUN ln -sf /api-train.sh /workspace/api-train.sh
 
-# IMPORTANT:
-# bc-base already has ENTRYPOINT = micromamba run -n appenv
-# so here we only set CMD to what should run by default
-# Run everything inside the micromamba env AND forward env vars
-# REMOVE this line entirely:
-# ENTRYPOINT ["micromamba", "run", "-n", "appenv", "-e"]
+# Ensure runpod is installed in the base env (torch should already be in bc-base)
+RUN micromamba run -n base pip install --no-cache-dir runpod && \
+    micromamba run -n base python -c "import torch; print('torch ok:', torch.__version__)"
 
-CMD ["/entrypoint.sh"]
-
+# Override any inherited ENTRYPOINT from upstream images
+ENTRYPOINT ["/entrypoint.sh"]
+CMD []
