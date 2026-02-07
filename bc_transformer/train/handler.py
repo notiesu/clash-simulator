@@ -3,22 +3,20 @@ import os
 import subprocess
 from pathlib import Path
 
-def _aws_sync(local_dir: str, s3_uri: str):
-    # Make sure local exists
-    p = Path(local_dir)
-    if not p.exists():
-        raise RuntimeError(f"save_path does not exist: {local_dir}")
-
-    # Sync directory to S3
-    cmd = ["aws", "s3", "sync", local_dir, s3_uri]
-    print("Uploading artifacts:", " ".join(cmd))
-    subprocess.run(cmd, check=True)
-
 def handler(job):
-    job_input = job.get("input", {})
-    print("Starting training job with input:", job_input)
+    raw_input = job.get("input", {})
+    print("Starting training job with input:", raw_input)
 
-    # Build CLI args for /api-train.sh
+    # Copy so we can pop keys without mutating original
+    job_input = dict(raw_input)
+
+    # --- keys NOT meant for train.py ---
+    s3_save_uri = job_input.pop("s3_save_uri", None)  # <-- don't forward to train.py
+    # (Optional: also support older key name)
+    if s3_save_uri is None:
+        s3_save_uri = job_input.pop("S3_SAVE_URI", None)
+
+    # Build CLI args for /api-train.sh from remaining keys
     args = []
     for key, value in job_input.items():
         args.append(f"--{key}")
@@ -53,21 +51,21 @@ def handler(job):
     if rc != 0:
         raise RuntimeError(f"api-train failed (rc={rc}). Last logs:\n{tail}")
 
-    # After successful training, upload to S3 if requested
+    # Upload artifacts to S3 (if requested)
     save_path = job_input.get("save_path") or job_input.get("SAVE_PATH")
-    s3_save_uri = job_input.get("s3_save_uri") or job_input.get("S3_SAVE_URI")
-
     if s3_save_uri:
         if not save_path:
-            # If user forgot to pass save_path, default to something safe
-            save_path = "/tmp/runs"
-        _aws_sync(str(save_path), str(s3_save_uri))
-        return {
-            "ok": True,
-            "return_code": rc,
-            "log_tail": tail,
-            "uploaded_to": s3_save_uri,
-        }
+            raise RuntimeError("s3_save_uri was provided but save_path is missing.")
+
+        p = Path(str(save_path))
+        if not p.exists():
+            raise RuntimeError(f"save_path does not exist: {save_path}")
+
+        cmd = ["aws", "s3", "sync", str(save_path), str(s3_save_uri)]
+        print("Uploading artifacts:", " ".join(cmd))
+        subprocess.run(cmd, check=True)
+
+        return {"ok": True, "return_code": rc, "log_tail": tail, "uploaded_to": s3_save_uri}
 
     return {"ok": True, "return_code": rc, "log_tail": tail}
 

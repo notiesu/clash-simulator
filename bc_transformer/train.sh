@@ -19,7 +19,7 @@ RUN_NAME="${1:-${RUN_NAME:-run_001}}"
 
 # cpu | cuda
 DEVICE="${DEVICE:-cuda}"
-EPOCHS="${EPOCHS:-3}"
+EPOCHS="${EPOCHS:-100}"
 
 # S3 folder that already contains train.jsonl + val.jsonl
 # Allow override from environment
