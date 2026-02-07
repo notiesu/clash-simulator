@@ -383,8 +383,8 @@ class ClashRoyaleGymEnv(gym.Env):
             action1 = self.action_space.sample()
         p1_card_idx, p1_card_name, p1_x_tile, p1_y_tile, p1_deploy_x, p1_deploy_y, p1_action_success = self.decode_and_deploy(1, action1)
         # Advance simulation one tick
-        if not p1_action_success:
-            print(f"Opponent action failed to deploy: {action1} -> card_idx {p1_card_idx}, tile ({p1_x_tile}, {p1_y_tile})")
+        # if not p1_action_success:
+        #     print(f"Opponent action failed to deploy: {action1} -> card_idx {p1_card_idx}, tile ({p1_x_tile}, {p1_y_tile})")
         self.battle.step(self.speed_factor)
         self._step_count += 1
 

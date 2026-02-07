@@ -11,13 +11,15 @@ logging.basicConfig(level=logging.INFO)
 
 
 class RecurrentPPOONNXInferenceModel(InferenceModel):
-    def __init__(self, onnx_path, deterministic=True, player_id=0, use_cuda=True):
-        self.load_model(onnx_path)
+    def __init__(self, model_path, env, deterministic=True, player_id=0, use_cuda=True):
+        self.model_path = model_path
+        
+        self.env = env
         self.deterministic = deterministic
         self.player_id = player_id
 
-        self._load_onnx()
         self.reset()
+        self.load_model(model_path)
 
         print("RecurrentPPO ONNX inference initialized")
 
@@ -33,7 +35,7 @@ class RecurrentPPOONNXInferenceModel(InferenceModel):
             providers.insert(0, "CUDAExecutionProvider")
 
         self.session = ort.InferenceSession(
-            self.onnx_path,
+            self.model_path,
             providers=providers,
         )
 
@@ -45,7 +47,7 @@ class RecurrentPPOONNXInferenceModel(InferenceModel):
 
     # ------------------- STATE -------------------
 
-    def reset(self):
+    def reset(self):        
         self.episode_start = np.array([True], dtype=np.bool_)
 
         # reward shaping state
@@ -55,29 +57,27 @@ class RecurrentPPOONNXInferenceModel(InferenceModel):
         self._prev_time = 0.0
         self._elixir_overflow_accum = 0.0
 
-        # reset LSTM at new episode
-        self.pi_h.fill(0)
-        self.pi_c.fill(0)
-        self.vf_h.fill(0)
-        self.vf_c.fill(0)
-
+        # LSTM states (initialized to zeros, will be updated after first inference)
+        self.pi_h, self.pi_c = self._init_lstm((1, 1, 256))  # (n_layers, batch, hidden_size)
+        self.vf_h, self.vf_c = self._init_lstm((1, 1, 256))
 
     def _init_lstm(self, shape):
         # replace symbolic dims with 1
         shape_fixed = tuple(1 if isinstance(x, str) else x for x in shape)
         zero = np.zeros(shape_fixed, dtype=np.float32)
         return zero, zero
+        # ------------------- INFERENCE -------------------
 
-    # ------------------- INFERENCE -------------------
-
-    def predict(self, obs):
-        obs = np.expand_dims(obs, axis=0) if obs.ndim == 3 else obs
-
-        if self.pi_h is None:
-            # infer LSTM shape from model inputs
-            pi_h_shape = self.session.get_inputs()[1].shape
-            self.pi_h, self.pi_c = self._init_lstm(pi_h_shape)
-            self.vf_h, self.vf_c = self._init_lstm(pi_h_shape)
+    def predict(self, obs, deterministic=False):
+        """
+        Runs a single ONNX inference step with recurrent state update
+        and optional invalid action masking.
+        
+        obs: preprocessed observation, shape (1,C,H,W)
+        invalid_mask: array of shape (n_actions,) with 0 = invalid, 1 = valid
+        deterministic: if True, use argmax; else stochastic
+        """
+        # --- ONNX forward pass ---
 
         inputs = {
             "obs": obs.astype(np.float32),
@@ -86,20 +86,32 @@ class RecurrentPPOONNXInferenceModel(InferenceModel):
             "vf_h": self.vf_h,
             "vf_c": self.vf_c,
         }
-
+        
         outputs = self.session.run(None, inputs)
+        actions_raw, new_pi_h, new_pi_c, new_vf_h, new_vf_c = outputs
 
-        (
-            actions,
-            new_pi_h, new_pi_c,
-            new_vf_h, new_vf_c,
-        ) = outputs
-
+        # --- update LSTM states ---
         self.pi_h, self.pi_c = new_pi_h, new_pi_c
         self.vf_h, self.vf_c = new_vf_h, new_vf_c
-        self.episode_start[:] = False
 
-        return actions[0]
+        # --- extract logits or action scores ---
+        logits = actions_raw[0]  # remove batch dim, shape = (n_actions,)
+
+        # --- apply invalid action mask if provided ---
+        mask = self.env.get_valid_action_mask(self.player_id)  # shape (n_actions,)
+        logits = np.where(mask == 1, logits, -1e9)
+
+        # --- select action ---
+        if deterministic:
+            action = int(np.argmax(logits))
+        else:
+            # stochastic selection via softmax
+            exp_logits = np.exp(logits - np.max(logits))
+            probs = exp_logits / exp_logits.sum()
+            action = int(np.random.choice(len(probs), p=probs))
+
+        return action
+
 
     # ------------------- PERF -------------------
 
@@ -113,7 +125,7 @@ class RecurrentPPOONNXInferenceModel(InferenceModel):
     # ------------------- OBS / ACTION -------------------
 
     def preprocess_observation(self, observation):
-        print(f"Preprocessing observation of type {type(observation)} and shape {getattr(observation, 'shape', 'N/A')}")
+        # print(f"Preprocessing observation of type {type(observation)} and shape {getattr(observation, 'shape', 'N/A')}")
         if isinstance(observation, dict):
             arr = np.asarray(observation["p1-view"], dtype=np.float32)
             # HWC -> CHW

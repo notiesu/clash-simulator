@@ -41,7 +41,7 @@ if __name__ == "__main__":
     elif args.p0_model_type == "RandomPolicy":
         model_p0 = RandomPolicy(env)
     elif args.po_model_type == "RecurrentPPOONNX":
-        model_p0 = RecurrentPPOONNXInferenceModel(args.p0_model_path)
+        model_p0 = RecurrentPPOONNXInferenceModel(args.p0_model_path, env=env, player_id=0)
     model_p0.load_model(args.p0_model_path)
 
     #same for player 1
@@ -52,7 +52,7 @@ if __name__ == "__main__":
     elif args.p1_model_type == "RandomPolicy":
         model_p1 = RandomPolicy(env)
     elif args.p1_model_type == "RecurrentPPOONNX":
-        model_p1 = RecurrentPPOONNXInferenceModel(args.p1_model_path)
+        model_p1 = RecurrentPPOONNXInferenceModel(args.p1_model_path, env=env, player_id=1)
     model_p1.load_model(args.p1_model_path)
 
     logging.info("Both models loaded successfully.")

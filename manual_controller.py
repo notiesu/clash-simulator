@@ -74,14 +74,14 @@ class ManualController(BattleVisualizer):
                 self.opponent = RecurrentPPOInferenceModel(model_path, eval=True, deterministic=True)
                 self.env.set_opponent_policy(self.opponent)
             except Exception as e:
-                print(f"Failed loading recurrent model: {e}")
+                raise RuntimeError(f"Failed loading opponent model: {e}")
         elif opponent_type == "recurrent_onnx":
             from wrappers.rppo_onnx import RecurrentPPOONNXInferenceModel
             try:
-                self.opponent = RecurrentPPOONNXInferenceModel(model_path)
+                self.opponent = RecurrentPPOONNXInferenceModel(model_path, env=self.env, player_id=1)
                 self.env.set_opponent_policy(self.opponent)
             except Exception as e:
-                print(f"Failed loading ONNX model: {e}")
+                raise RuntimeError(f"Failed loading ONNX model: {e}")
 
         # UI layout for hand cards
         self.ui_card_rects = []
