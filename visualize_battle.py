@@ -87,14 +87,14 @@ class BattleVisualizer:
         # Deploy some units for visualization using corrected positions
         deployments = [
             # Player 0 (Blue - bottom half, y < 15)
-            (0, 'Knight', Position(8.5, 12), "P0 Knight center"),
-            (0, 'Archers', Position(4, 8), "P0 Archers left"),
-            (0, 'Archers', Position(13, 8), "P0 Archers right"),
+            # (0, 'Knight', Position(8.5, 12), "P0 Knight center"),
+            # (0, 'Archers', Position(4, 8), "P0 Archers left"),
+            # (0, 'Archers', Position(13, 8), "P0 Archers right"),
             
             # Player 1 (Red - top half, y > 16)  
-            (1, 'Knight', Position(8.5, 20), "P1 Knight center"),
-            (1, 'Archers', Position(4, 24), "P1 Archers left"),
-            (1, 'Archers', Position(13, 24), "P1 Archers right"),
+            # (1, 'Knight', Position(8.5, 20), "P1 Knight center"),
+            # (1, 'Archers', Position(4, 24), "P1 Archers left"),
+            # (1, 'Archers', Position(13, 24), "P1 Archers right"),
         ]
         
         for player_id, card, pos, desc in deployments:

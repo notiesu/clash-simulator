@@ -4,10 +4,12 @@ This provides a minimal, working `ClashRoyaleGymEnv` implementation suitable
 for running the project's `helloworld.py` demo and for basic RL loops.
 """
 
-#TODO - Benchmark on tick times for latency
+# TODO - Benchmark on tick times for latency
 import contextlib
 from typing import Tuple, Dict, Any, Optional
 
+import json
+import os
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
@@ -16,24 +18,30 @@ from .engine import BattleEngine
 from .arena import TileGrid, Position
 from pettingzoo import ParallelEnv
 from .model import InferenceModel
+from collections import deque
 
-MAX_TOTAL_TOWER_HP = 12086  # 4824 + 2 * 3631
+MAX_TOTAL_TOWER_HP = 12086  # 4824 + 2 * 363
 
 class ClashRoyaleGymEnv(gym.Env):
     """Simple Gymnasium environment wrapper around BattleEngine/BattleState.
 
     Action encoding (discrete 2304): card_idx (4) x x_tile (18) x y_tile (32)
-    Observation: dict with `'p1-view'` -> 128x128x3 
-    Channel 1 - 0 = p0, 1 = p1, 
+    Observation: dict with `'p1-view'` -> 128x128x3
+    Channel 1 - 0 = p0, 1 = p1,
     """
 
     metadata = {"render_modes": ["rgb_array"]}
 
-    def __init__(self, 
-                speed_factor: float = 1.0,
-                data_file: str = "gamedata.json",
-                max_steps: int = 9090,
-                suppress_output: bool = True):
+    def __init__(self,
+                 speed_factor: float = 1.0,
+                 data_file: str = "gamedata.json",
+                 max_steps: int = 9090,
+                 suppress_output: bool = True,
+                 decks_file: Optional[str] = None,
+                 deck0: Optional[list] = None,
+                 deck1: Optional[list] = None,
+                 deck0_name: Optional[str] = None,
+                 deck1_name: Optional[str] = None):
         super().__init__()
         self.speed_factor = speed_factor
         self.data_file = data_file
@@ -47,7 +55,16 @@ class ClashRoyaleGymEnv(gym.Env):
         self.tiles_x = self.battle.arena.width
         self.tiles_y = self.battle.arena.height
         self.actions_per_tile = self.tiles_x * self.tiles_y
-        self.action_space = spaces.Discrete(self.num_cards * self.actions_per_tile)
+
+        # Deck configuration options (can be lists of card names or names/indexes referring to decks.json)
+        self._decks_file = "decks.json"
+        self._initial_deck0 = deck0
+        self._initial_deck1 = deck1
+        self._initial_deck0_name = deck0_name
+        self._initial_deck1_name = deck1_name
+
+        self.no_op_action = self.num_cards * self.actions_per_tile
+        self.action_space = spaces.Discrete(self.num_cards * self.actions_per_tile + 1)
 
         # Observation: 128x128 RGB-like tensor
         self.obs_shape = (128, 128, 3)
@@ -65,6 +82,13 @@ class ClashRoyaleGymEnv(gym.Env):
         # Opponent policy: either None (no embedded opponent) or an InferenceModel instance
         self.opponent_policy: Optional[InferenceModel] = None
 
+        # Apply any initial decks requested by constructor
+        try:
+            self._apply_initial_decks()
+        except Exception:
+            # don't fail init on deck errors; caller can set decks later
+            pass
+
     def set_opponent_policy(self, model: InferenceModel):
         """Set an opponent policy model to be used for player 1 actions."""
         self.opponent_policy = model
@@ -74,6 +98,123 @@ class ClashRoyaleGymEnv(gym.Env):
             return None
         np.random.seed(seed)
         return seed
+
+    def set_player_deck(self, player_id: int, deck: list, initial_hand: Optional[list] = None):
+        """Set the deck for a specific player and rebuild their hand/cycle.
+
+        player_id: 0 or 1
+        deck: list of card names (ordered)
+        initial_hand: optional list of 4 card names to use as the starting hand
+        """
+        if player_id < 0 or player_id >= len(self.battle.players):
+            raise IndexError("player_id out of range")
+        player = self.battle.players[player_id]
+        player.deck = list(deck)
+        # Set initial hand
+        if initial_hand is not None:
+            player.hand = list(initial_hand)
+        else:
+            player.hand = list(deck[:4])
+        # Rebuild cycle queue from remaining deck cards
+        remaining = [c for c in player.deck if c not in player.hand]
+        player.cycle_queue = deque(remaining)
+
+    def get_valid_action_mask(self, player_id: int) -> np.ndarray:
+        """Return a boolean mask over the discrete action space for the given player_id."""
+        if player_id < 0 or player_id >= len(self.battle.players):
+            raise IndexError("player_id out of range")
+        player = self.battle.players[player_id]
+        arena = self.battle.arena
+
+        mask = np.zeros(self.action_space.n, dtype=bool)
+        for card_idx, card_name in enumerate(player.hand):
+            card_stats = self.battle.card_loader.get_card(card_name)
+            if card_stats is None:
+                print(f"Warning: card '{card_name}' not found in card loader")
+            if not player.can_play_card(card_name, card_stats):
+                continue
+            for x in range(self.tiles_x):
+                for y in range(self.tiles_y):
+                    # y here is the world/tile y; for player 1 the action encoding is
+                    # canonicalized (y flipped) so we must compute the encoded tile y.
+                    pos = Position(float(x) + 0.5, float(y) + 0.5)
+                    if arena.can_deploy_at(pos, player_id, self.battle):
+                        encoded_y = y if player_id == 0 else (self.tiles_y - 1 - y)
+                        action_int = card_idx * self.actions_per_tile + encoded_y * self.tiles_x + x
+                        mask[int(action_int)] = True
+
+        # allow no-op always
+        mask[int(self.no_op_action)] = True
+        return mask
+
+    def _load_decks_file(self) -> list:
+        """Load decks from a JSON file path stored in `self._decks_file`.
+
+        Returns a list of deck dicts with keys like 'name' and 'cards'.
+        """
+        path = self._decks_file
+        if not path:
+            return []
+        if not os.path.isabs(path):
+            path = os.path.join(os.getcwd(), path)
+        try:
+            with open(path, 'r') as fh:
+                data = json.load(fh)
+            return data.get('decks', [])
+        except Exception:
+            return []
+
+    def _apply_initial_decks(self):
+        """Apply deck configuration provided at construction time.
+
+        Priority: explicit `deck0`/`deck1` lists > deck names `deck0_name`/`deck1_name` in `decks_file` > first two decks in `decks_file`.
+        """
+        # If explicit lists provided, use them
+        if self._initial_deck0 is not None and self._initial_deck1 is not None:
+            self.set_decks(self._initial_deck0, self._initial_deck1)
+            return
+
+        # Otherwise, try to load from decks_file
+        decks = self._load_decks_file()
+        if not decks:
+            return
+
+        # Helper to resolve by name or index
+        def resolve(name_or_index):
+            if name_or_index is None:
+                return None
+            # integer index
+            try:
+                idx = int(name_or_index)
+                if 0 <= idx < len(decks):
+                    return decks[idx].get('cards', [])
+            except Exception:
+                pass
+            # string name lookup
+            for d in decks:
+                if str(d.get('name', '')).lower() == str(name_or_index).lower():
+                    return d.get('cards', [])
+            return None
+
+        d0 = resolve(self._initial_deck0_name) if self._initial_deck0_name else None
+        d1 = resolve(self._initial_deck1_name) if self._initial_deck1_name else None
+
+        # If neither named decks specified, fall back to first two decks in file
+        if d0 is None and d1 is None:
+            if len(decks) >= 2:
+                self.set_decks(decks[0].get('cards', []), decks[1].get('cards', []))
+            elif len(decks) == 1:
+                self.set_player_deck(0, decks[0].get('cards', []))
+        else:
+            if d0 is not None:
+                self.set_player_deck(0, d0)
+            if d1 is not None:
+                self.set_player_deck(1, d1)
+
+    def set_decks(self, deck0: list, deck1: list, hand0: Optional[list] = None, hand1: Optional[list] = None):
+        """Convenience to set both players' decks and optional starting hands."""
+        self.set_player_deck(0, deck0, initial_hand=hand0)
+        self.set_player_deck(1, deck1, initial_hand=hand1)
     
     def transpose_observation(self, observation):
         """
@@ -186,9 +327,11 @@ class ClashRoyaleGymEnv(gym.Env):
         return obs, info
     
     def decode_and_deploy(self, player_id: int, action: Optional[int] = None):
-        if action is None:
-            #make random action if none
-            action = self.action_space.sample()
+        # Special sentinel: -1 means "skip deploy" for this player (no play this tick)
+        if action == self.no_op_action or action is None:
+            # Return a standardized no-op result:
+            #this is a successful no-op, not an invalid action, so success=True but other fields are -1 or None
+            return -1, None, -1, -1, -1.0, -1.0, True
 
         card_idx = action // self.actions_per_tile
         tile_index = action % self.actions_per_tile
@@ -204,10 +347,12 @@ class ClashRoyaleGymEnv(gym.Env):
         x_tile = int(x_tile)
         y_tile = int(y_tile)
 
-        # safe card selection
+        # safe card selection: if the decoded card index is not present in the player's hand,
+        # treat the action as a no-op rather than remapping to card 0.
         hand = self.battle.players[player_id].hand
         if card_idx < 0 or card_idx >= len(hand):
-            card_idx = 0
+            # invalid action -> standardized no-op
+            return -1, None, -1, -1, -1.0, -1.0, False
         card_name = hand[card_idx]
 
         # deploy position (center of tile)
@@ -223,6 +368,7 @@ class ClashRoyaleGymEnv(gym.Env):
         
         # Decode and deploy for both players
         action0 = action
+
         p0_card_idx, card_name, p0_x_tile, p0_y_tile, deploy_x, deploy_y, p0_action_success = self.decode_and_deploy(0, action0)
         
         #opponents action is flipped on the y axis
@@ -237,6 +383,8 @@ class ClashRoyaleGymEnv(gym.Env):
             action1 = self.action_space.sample()
         p1_card_idx, p1_card_name, p1_x_tile, p1_y_tile, p1_deploy_x, p1_deploy_y, p1_action_success = self.decode_and_deploy(1, action1)
         # Advance simulation one tick
+        if not p1_action_success:
+            print(f"Opponent action failed to deploy: {action1} -> card_idx {p1_card_idx}, tile ({p1_x_tile}, {p1_y_tile})")
         self.battle.step(self.speed_factor)
         self._step_count += 1
 
