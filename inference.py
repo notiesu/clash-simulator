@@ -4,7 +4,8 @@ From base.py import sim_game method to run the environment loop and log actions 
 from src.clasher.model import InferenceModel
 from wrappers.ppo import PPOInferenceModel
 from wrappers.recurrentppo import RecurrentPPOInferenceModel
-from wrappers.randompolicy import RandomPolicy
+from wrappers.randompolicy import RandomPolicyInferenceModel as RandomPolicy
+from wrappers.behavior_cloning import BCInferenceModel, BCArgs
 from stable_baselines3 import PPO
 from src.clasher.gym_env import ClashRoyaleGymEnv
 import logging
@@ -29,26 +30,52 @@ if __name__ == "__main__":
     parser.add_argument("--p1_model_path", type=str, required=True, help="Path to the model file.")
     parser.add_argument("--p1_model_type", type=str, default="PPO", help="Type of the model to use for inference (default: PPO).")
     parser.add_argument("--printLogs", action="store_true", help="Enable logging of actions to a JSONL file.")
+    parser.add_argument("--p0_vocab_json", type=str, default=None, help="(BC only) Path to token2id json")
+    parser.add_argument("--p1_vocab_json", type=str, default=None, help="(BC only) Path to token2id json")
+    parser.add_argument("--history_len", type=int, default=20, help="(BC only) history length")
+    parser.add_argument("--pad_id", type=int, default=0, help="(BC only) pad token id used during training")
+    parser.add_argument("--device", type=str, default="cpu", help="cpu or cuda")
+
     args = parser.parse_args()
 
     # Example usage
     env = ClashRoyaleGymEnv()
+
+    #same for player 0 selection
     if args.p0_model_type == "PPO":
         model_p0 = PPOInferenceModel()
     elif args.p0_model_type == "RecurrentPPO":
         model_p0 = RecurrentPPOInferenceModel()
     elif args.p0_model_type == "RandomPolicy":
         model_p0 = RandomPolicy(env)
-    model_p0.load_model(args.p0_model_path)
+    elif args.p0_model_type == "BC":
+        bc_args = BCArgs(
+            token2id_path=args.p0_vocab_json,  # <-- updated name
+            pad_id=args.pad_id,
+            history_len=args.history_len,
+            device=args.device,
+        )
+        model_p0 = BCInferenceModel(env=env, bc_args=bc_args, printLogs=args.printLogs)
+    else:
+        raise ValueError(f"Unknown p0_model_type: {args.p0_model_type}")
 
-    #same for player 1
+    #same for player 1 selection
     if args.p1_model_type == "PPO":
         model_p1 = PPOInferenceModel()
     elif args.p1_model_type == "RecurrentPPO":
         model_p1 = RecurrentPPOInferenceModel()
     elif args.p1_model_type == "RandomPolicy":
         model_p1 = RandomPolicy(env)
-    model_p1.load_model(args.p1_model_path)
+    elif args.p1_model_type == "BC":
+        bc_args = BCArgs(
+            token2id_path=args.p1_vocab_json,  # <-- updated name
+            pad_id=args.pad_id,
+            history_len=args.history_len,
+            device=args.device,
+        )
+        model_p1 = BCInferenceModel(env=env, bc_args=bc_args, printLogs=args.printLogs)
+    else:
+        raise ValueError(f"Unknown p1_model_type: {args.p1_model_type}")
 
     logging.info("Both models loaded successfully.")
     logging.info("Starting simulation game.")
