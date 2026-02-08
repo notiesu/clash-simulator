@@ -13,3 +13,4 @@ logs/
 models/*
 .env*
 train/
+.DS_Store*
