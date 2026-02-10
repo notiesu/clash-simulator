@@ -4,7 +4,7 @@ From base.py import sim_game method to run the environment loop and log actions 
 from src.clasher.model import InferenceModel
 from wrappers.ppo import PPOInferenceModel
 from wrappers.recurrentppo import RecurrentPPOInferenceModel
-from wrappers.randompolicy import RandomPolicy
+from wrappers.randompolicy import RandomPolicyInferenceModel
 from wrappers.rppo_onnx import RecurrentPPOONNXInferenceModel
 from stable_baselines3 import PPO
 from src.clasher.gym_env import ClashRoyaleGymEnv
@@ -21,6 +21,8 @@ Method for transposing observation - switches p0 and p1 views
 NOTE: Action transposition is handled within env step. See gym_env decode_and_deploy for implementation.
 """
 
+DECK = ["Cannon", "Fireball", "HogRider", "IceGolemite", "IceSpirits", "Musketeer", "Skeletons", "Log"]
+
 if __name__ == "__main__":
 
     # Parse command-line arguments
@@ -34,12 +36,17 @@ if __name__ == "__main__":
 
     # Example usage
     env = ClashRoyaleGymEnv()
+    env.set_player_deck(0, DECK)
+    env.set_player_deck(1, DECK)
+    print(env.battle.players[0].deck)
+    print(env.battle.players[1].deck)
+    
     if args.p0_model_type == "PPO":
         model_p0 = PPOInferenceModel()
     elif args.p0_model_type == "RecurrentPPO":
         model_p0 = RecurrentPPOInferenceModel()
     elif args.p0_model_type == "RandomPolicy":
-        model_p0 = RandomPolicy(env)
+        model_p0 = RandomPolicyInferenceModel(env, player_id=0)
     elif args.po_model_type == "RecurrentPPOONNX":
         model_p0 = RecurrentPPOONNXInferenceModel(args.p0_model_path, env=env, player_id=0)
     model_p0.load_model(args.p0_model_path)
@@ -50,7 +57,7 @@ if __name__ == "__main__":
     elif args.p1_model_type == "RecurrentPPO":
         model_p1 = RecurrentPPOInferenceModel()
     elif args.p1_model_type == "RandomPolicy":
-        model_p1 = RandomPolicy(env)
+        model_p1 = RandomPolicyInferenceModel(env, player_id=1)
     elif args.p1_model_type == "RecurrentPPOONNX":
         model_p1 = RecurrentPPOONNXInferenceModel(args.p1_model_path, env=env, player_id=1)
     model_p1.load_model(args.p1_model_path)
@@ -103,7 +110,7 @@ if __name__ == "__main__":
             logging.info(f"Step: {num_steps}, Reward: {reward}, Info: {info}")
 
             # Log observation details
-            logging.info(f"Observation: {obs}")
+            # logging.info(f"Observation: {obs}")
 
         # Log player information
         for player in info.get("players", []):

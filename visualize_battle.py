@@ -607,11 +607,11 @@ class BattleVisualizer:
             self.screen.blit(crowns_text, (ui_x, ui_y))
             ui_y += line_height
             
-            towers_text = self.font.render(f"  King: {int(player.king_tower_hp)}", True, BLACK)
+            towers_text = self.font.render(f"  King: {float(player.king_tower_hp)}", True, BLACK)
             self.screen.blit(towers_text, (ui_x, ui_y))
             ui_y += line_height
             
-            towers_text2 = self.font.render(f"  Towers: {int(player.left_tower_hp)}/{int(player.right_tower_hp)}", True, BLACK)
+            towers_text2 = self.font.render(f"  Towers: {float(player.left_tower_hp)}/{float(player.right_tower_hp)}", True, BLACK)
             self.screen.blit(towers_text2, (ui_x, ui_y))
             ui_y += line_height * 2
         
