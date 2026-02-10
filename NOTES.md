@@ -1,3 +1,6 @@
+Performance profiling notes:
+
+
 Typical learning rate range for PPO: 1e-4 → 5e-4
 
 helloworld.py - basic environment stepping, log random games

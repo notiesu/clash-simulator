@@ -158,6 +158,7 @@ class TileGrid:
         zones = self.get_deploy_zones(player_id, battle_state)
         for x1, y1, x2, y2 in zones:
             if x1 <= pos.x < x2 and y1 <= pos.y < y2:
+                # print(f"Position {pos} is within deployment zone ({x1}, {y1}, {x2}, {y2}) for player {player_id}")
                 return True
         
         # Special case: allow middle 6 tiles on edge rows for respective players

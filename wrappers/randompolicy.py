@@ -17,17 +17,22 @@ from scripts.train.ppo_wrapper import PPOObsWrapper
 
 
 class RandomPolicyInferenceModel(InferenceModel):
-    def __init__(self, env):
+    def __init__(self, env, player_id=0):
         self.env = env
-
+        self.player_id = player_id
+    
     def load_model(self, model_path):
         pass
 
     def predict(self, obs):
-        return self.env.action_space.sample()
+        valid_action_mask = self.env.get_valid_action_mask(self.player_id)
+        valid_actions = np.where(valid_action_mask)[0]
+        if len(valid_actions) == 0:
+            return self.env.no_op_action  # Return no-op if no valid actions
+        return np.random.choice(valid_actions)
 
     def preprocess_observation(self, observation):
-        return observation
+        return observation  
 
     def postprocess_action(self, model_output):
         # For this env the model_output can be passed through directly.

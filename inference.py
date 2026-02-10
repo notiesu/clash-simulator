@@ -6,6 +6,8 @@ from wrappers.ppo import PPOInferenceModel
 from wrappers.recurrentppo import RecurrentPPOInferenceModel
 from wrappers.randompolicy import RandomPolicyInferenceModel as RandomPolicy
 from wrappers.behavior_cloning import BCInferenceModel, BCArgs
+from wrappers.randompolicy import RandomPolicy
+from wrappers.rppo_onnx import RecurrentPPOONNXInferenceModel
 from stable_baselines3 import PPO
 from src.clasher.gym_env import ClashRoyaleGymEnv
 import logging

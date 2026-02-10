@@ -2,20 +2,22 @@ import logging
 import os
 import datetime
 import json
+from xml.parsers.expat import model
 import numpy as np
+import torch
 from src.clasher.model import InferenceModel
 from stable_baselines3.common.vec_env import DummyVecEnv
 from sb3_contrib import RecurrentPPO
 from scripts.train.ppo_wrapper import PPOObsWrapper
-
+import time
 # try common locations for RecurrentPPO
 
 # reuse the same observation wrapper used by PPO inference
 
 
 class RecurrentPPOInferenceModel(InferenceModel):
-    def __init__(self, model_path):
-        self.model = self.load_model(model_path)
+    def __init__(self, model_path, eval=False, deterministic=False, player_id=0):
+        self.load_model(model_path)
         if self.model is None:
             raise ValueError(f"Failed to load RecurrentPPO model from {model_path}")
         self.state = None
@@ -29,6 +31,41 @@ class RecurrentPPOInferenceModel(InferenceModel):
         self._H_main = 4824.0
         self._H_aux = 3631.0
 
+        # record flags
+        self.eval_mode = eval
+        self.deterministic = deterministic
+
+        # Eval-mode optimizations
+        if self.eval_mode:
+            # set policy to eval and disable grad globally for inference
+            self.model.policy.eval()
+            torch.set_grad_enabled(False)
+
+            # prefer GPU + fp16 when available for faster inference
+            if torch.cuda.is_available():
+                self.device = torch.device("cuda")
+                try:
+                    self.model.to(self.device)
+                except Exception:
+                    logging.exception("Failed to move model to CUDA; continuing on current device")
+                # use automatic mixed precision for faster kernels when supported
+                self.use_autocast = True
+                # enable cudnn benchmark for fixed-size ops
+                try:
+                    torch.backends.cudnn.benchmark = True
+                except Exception:
+                    pass
+            else:
+                self.device = torch.device("cpu")
+                self.use_autocast = False
+
+            if hasattr(self.model.policy, "lstm"):
+                self.model.policy.lstm.flatten_parameters()
+        else:
+            # not eval: default device still CPU
+            self.device = torch.device("cpu")
+            self.use_autocast = False
+
 
     def reset(self):
         self.state = None
@@ -38,19 +75,56 @@ class RecurrentPPOInferenceModel(InferenceModel):
         self._prev_elixir_waste = 0.0
         self._prev_time = 0.0
         self._elixir_overflow_accum = 0.0
+        
 
     
     def load_model(self, model_path):
         self.model = RecurrentPPO.load(model_path)
+        if hasattr(self.model.policy, "lstm"):
+            self.model.policy.lstm.flatten_parameters()
+            print("Flattened LSTM parameters for efficiency.")
 
     def predict(self, obs):
-        action, self.state = self.model.predict(
-            obs,
-            state=self.state,
-            episode_start=self.episode_start,
-            deterministic=False,
-        )
+        if self.eval_mode:
+            # Use inference_mode to skip autograd overhead. If CUDA is available
+            # and use_autocast is True, enable AMP for faster kernel execution.
+            with torch.inference_mode():
+                if self.use_autocast and torch.cuda.is_available():
+                    with torch.cuda.amp.autocast():
+                        action, self.state = self.model.predict(
+                            obs,
+                            self.state,
+                            self.episode_start,
+                            self.deterministic,
+                        )
+                else:
+                    #instead of predict, use forward
+                    action, self.state = self.model.predict(
+                        obs,
+                        self.state,
+                        self.episode_start,
+                        self.deterministic,
+                    )
+        else:
+            action, self.state = self.model.predict(
+                obs,
+                state=self.state,
+                episode_start=self.episode_start,
+                deterministic=self.deterministic,
+            )
         return action
+
+    def perf_test(self, obs):
+        N = 500
+        start = time.perf_counter()
+
+        
+        for _ in range(N):
+            self.predict(obs)
+
+        end = time.perf_counter()
+        print (f"RecurrentPPO inference time for {N} steps in eval_mode={self.eval_mode}: {end - start:.4f} seconds")
+
 
     def preprocess_observation(self, observation):
         # Normalize/convert HWC -> CHW (and NHWC -> NCHW) for numpy inputs and dict {"p1-view": HWC}
@@ -58,28 +132,35 @@ class RecurrentPPOInferenceModel(InferenceModel):
             img = observation.get("p1-view")
             if img is None:
                 return super().preprocess_observation(observation)
-            img = np.asarray(img, dtype=np.float32)
-            if img.ndim == 3:
-                return np.transpose(img, (2, 0, 1))
-            return img.astype(np.float32)
+            arr = np.asarray(img)
+            if arr.dtype != np.float32:
+                arr = arr.astype(np.float32)
+            if arr.ndim == 3:
+                return np.transpose(arr, (2, 0, 1))
+            return arr
 
         if isinstance(observation, (list, tuple)):
             processed = []
             for ob in observation:
                 if not isinstance(ob, dict) or "p1-view" not in ob:
                     return super().preprocess_observation(observation)
-                img = np.asarray(ob["p1-view"], dtype=np.float32)
-                processed.append(np.transpose(img, (2, 0, 1)))
+                arr = np.asarray(ob["p1-view"])
+                if arr.dtype != np.float32:
+                    arr = arr.astype(np.float32)
+                processed.append(np.transpose(arr, (2, 0, 1)))
             return np.stack(processed, axis=0)
 
         if isinstance(observation, np.ndarray):
-            if observation.ndim == 3:
+            arr = observation
+            if arr.dtype != np.float32:
+                arr = arr.astype(np.float32)
+            if arr.ndim == 3:
                 # HWC -> CHW
-                return np.transpose(observation.astype(np.float32), (2, 0, 1))
-            if observation.ndim == 4:
+                return np.transpose(arr, (2, 0, 1))
+            if arr.ndim == 4:
                 # NHWC -> NCHW
-                return np.transpose(observation.astype(np.float32), (0, 3, 1, 2))
-            return observation.astype(np.float32)
+                return np.transpose(arr, (0, 3, 1, 2))
+            return arr
 
         return observation
 

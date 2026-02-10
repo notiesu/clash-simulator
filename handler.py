@@ -1,6 +1,7 @@
 import runpod
 import os
 import subprocess
+import shutil
 
 def handler(job):
     # Get the input from the job
@@ -8,8 +9,8 @@ def handler(job):
 
     #get rid of the train dir in the current dir
     if os.path.exists("train"):
-        os.rmdir("train")
-        print("Removed existing train directory")
+        shutil.rmtree("train")
+        print("Removed existing train directory recursively.")
 
     # Start logging session using print
     print("Starting training job with input:", input)

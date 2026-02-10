@@ -1914,7 +1914,7 @@
             "deployTime": 1000,
             "speed": 120,
             "hitpoints": 90,
-            "hitSpeed": 300,
+            "hitSpeed": 9999999,
             "loadTime": 100,
             "range": 2500,
             "attacksGround": true,
