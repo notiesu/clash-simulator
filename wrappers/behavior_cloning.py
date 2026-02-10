@@ -336,6 +336,25 @@ class BCInferenceModel(InferenceModel):
             print(f"[BCInferenceModel] Loaded weights: {model_path}")
             print(f"[BCInferenceModel] token2id: {src} | ckpt_vocab={vocab_size} | pad_id={self.pad_id} | device={self.device}")
 
+    def update_history_from_info(self, info):
+        if not hasattr(self, "_hist_cards"):
+            from collections import deque
+            self._hist_cards = deque(maxlen=self.bc_args.history_len)
+            self._hist_players = deque(maxlen=self.bc_args.history_len)
+
+        last = info.get("last_action", None)
+        if last is None:
+            return
+
+        for player_key, player_id in [("player_0", 0), ("player_1", 1)]:
+            action = last.get(player_key, {})
+            card_name = action.get("card_name", None)
+            success = action.get("success", False)
+
+            if success and card_name and card_name != "None":
+                self._hist_cards.append(card_name)
+                self._hist_players.append(player_id)
+
     def preprocess_observation(self, observation: Any) -> Dict[str, torch.Tensor]:
         """
         BC expects tokens; env currently returns pixels (H,W,3).
@@ -377,8 +396,10 @@ class BCInferenceModel(InferenceModel):
             p1_hand = list(u.battle.players[1].hand)
 
             # Optional: if env stores history buffers, use them; else empty
-            hist_cards = getattr(u, "history_cards", None)
-            hist_players = getattr(u, "history_players", None)
+            hist_cards = getattr(self, "_hist_cards", [])
+            hist_players = getattr(self, "_hist_players", [])
+
+            print("RAW env history_cards:", hist_cards)
 
             obs_dict = {
                 "history_cards": hist_cards if hist_cards is not None else [],
@@ -496,14 +517,17 @@ class BCInferenceModel(InferenceModel):
             "nonpad:", int((hc != self.pad_id).sum().item()),
             "pad_id:", self.pad_id,
         )
-        
-        if (hc != self.pad_id).any():
-            print("History contains real moves. Breaking...")
-            import pdb; pdb.set_trace()
 
         if isinstance(observation, dict) and "history_cards" in observation:
             if not (isinstance(observation.get("history_cards"), torch.Tensor) and observation["history_cards"].ndim == 2):
                 x = self.preprocess_observation(observation)
+
+        hc = x["history_cards"]
+
+        unique_vals = torch.unique(hc)
+
+        if (unique_vals != self.pad_id).any():
+            print("unique:", unique_vals.detach().cpu().tolist())
 
         hand_token_ids = x["deck"][0].to(dtype=torch.long)  # (4,)
         self._last_hand_token_ids = hand_token_ids.detach().cpu().tolist()
@@ -531,8 +555,7 @@ class BCInferenceModel(InferenceModel):
                 return -1  # NOOP
 
         print("made it to a playing checkpoint")
-        import pdb; pdb.set_trace()
-
+        
         # --- 2) Slot head: choose which card in hand ---
         logits = self.model(
             x["history_cards"], x["history_players"], x["deck"], x["opp_deck"]
