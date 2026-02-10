@@ -17,7 +17,7 @@ from scripts.train.ppo_wrapper import PPOObsWrapper
 
 
 class RandomPolicyInferenceModel(InferenceModel):
-    def __init__(self, env, player_id=0):
+    def __init__(self, env, player_id):
         self.env = env
         self.player_id = player_id
     

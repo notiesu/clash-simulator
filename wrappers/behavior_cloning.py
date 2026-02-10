@@ -440,64 +440,37 @@ class BCInferenceModel(InferenceModel):
 
     def postprocess_action(self, model_output: Any) -> int:
         """
-        Convert BC model output -> env encoded action integer.
+        Convert model output -> env encoded action integer.
+
+        NEW expected model output:
+          -1        = NOOP / WAIT
+          0..3      = hand slot index (indexes CURRENT HAND)
 
         Env expects:
           action = card_idx * actions_per_tile + tile_index
         where card_idx indexes CURRENT HAND: battle.players[player_id].hand
-
-        BC model outputs:
-          0..7 card choice in *deck-space* OR
-          8 = NOOP
-
-        We map predicted card -> env hand index, then choose a tile by heuristic.
         """
         a = int(model_output[0] if isinstance(model_output, tuple) else model_output)
 
         u = getattr(self.env, "unwrapped", self.env)
-        actions_per_tile = int(getattr(u, "actions_per_tile", getattr(u, "tiles_x", 1) * getattr(u, "tiles_y", 1)))
+        actions_per_tile = int(
+            getattr(u, "actions_per_tile", getattr(u, "tiles_x", 1) * getattr(u, "tiles_y", 1))
+        )
 
         player_id = self._infer_player_id()
         hand = list(u.battle.players[player_id].hand) if hasattr(u, "battle") else []
 
-        # Handle NOOP: best we can do is "place something" but you can bias it to likely fail
-        # Here: choose a defensive-ish tile with first card.
-        if a == 8 or len(hand) == 0:
-            card_idx = 0
-            tile_index = self._choose_tile_index("cannon")
-            return int(card_idx * actions_per_tile + tile_index)
+        # --- NOOP / WAIT ---
+        # If your env has a true NOOP action id, return it here instead of 0.
+        if a == -1 or len(hand) == 0:
+            return 0
 
-        # ---- map BC card-choice -> env hand index ----
-        # If your BC action corresponds to one of your 8 known tokens, map that token to env card name.
-        # If not, fallback to same index.
-        model_tokens_by_index = [
-            "cannon",
-            "fireball",
-            "hog-rider",
-            "ice-golem",
-            "ice-spirit",
-            "musketeer",
-            "skeletons",
-            "the-log",
-        ]
+        # --- a is HAND SLOT ---
+        card_idx = max(0, min(len(hand) - 1, a))
+        env_card_name = hand[card_idx]
 
-        if 0 <= a < len(model_tokens_by_index):
-            model_tok = model_tokens_by_index[a]
-            env_card_name = self._model_token_to_env_card(model_tok)
-
-            # find this card in current hand
-            try:
-                card_idx = hand.index(env_card_name)
-            except ValueError:
-                # fallback: if not found, pick 0 (safe) OR clamp to hand size
-                card_idx = 0
-        else:
-            # fallback if model outputs something weird
-            card_idx = max(0, min(len(hand) - 1, a))
-
-        # choose tile for this card type
-        model_tok = model_tokens_by_index[a] if 0 <= a < len(model_tokens_by_index) else "cannon"
-        tile_index = self._choose_tile_index(model_tok)
+        # choose a tile for this specific env card
+        tile_index = self._choose_tile_index(env_card_name)
 
         return int(card_idx * actions_per_tile + tile_index)
 
@@ -505,26 +478,84 @@ class BCInferenceModel(InferenceModel):
         # Keep behavior consistent with other wrappers. If you later want reward shaping, do it here.
         return info.get("reward", 0.0) if isinstance(info, dict) else 0.0
 
+    def _get_wait_token_id(self) -> int:
+        # no-op sentinel (postprocess already supports -1)
+        return -1
+
     @torch.no_grad()
     def predict(self, observation: Any) -> int:
-        """
-        Expects observation to already be preprocessed (batch dict) when called from inference.py,
-        but also supports raw obs dict as a convenience.
-        """
         if self.model is None:
             raise ValueError("BC model is not loaded. Call load_model() first.")
 
         x = observation
-        if isinstance(observation, dict) and "history_cards" in observation and isinstance(observation["history_cards"], (list, np.ndarray, torch.Tensor)):
-            # raw obs -> preprocess
+
+        hc = x["history_cards"]
+        print(
+            "history_cards shape:", tuple(hc.shape),
+            "unique:", torch.unique(hc).detach().cpu().tolist()[:20],
+            "nonpad:", int((hc != self.pad_id).sum().item()),
+            "pad_id:", self.pad_id,
+        )
+        
+        if (hc != self.pad_id).any():
+            print("History contains real moves. Breaking...")
+            import pdb; pdb.set_trace()
+
+        if isinstance(observation, dict) and "history_cards" in observation:
             if not (isinstance(observation.get("history_cards"), torch.Tensor) and observation["history_cards"].ndim == 2):
                 x = self.preprocess_observation(observation)
 
-        if self.bc_args.use_gate and hasattr(self.model, "forward_gate"):
-            gate_logits = self.model.forward_gate(x["history_cards"], x["history_players"], x["deck"], x["opp_deck"])
-            gate = int(torch.argmax(gate_logits, dim=-1).item())
-            if gate == 0:
-                return 8  # WAIT -> NOOP
+        hand_token_ids = x["deck"][0].to(dtype=torch.long)  # (4,)
+        self._last_hand_token_ids = hand_token_ids.detach().cpu().tolist()
 
-        logits = self.model(x["history_cards"], x["history_players"], x["deck"], x["opp_deck"])
-        return int(torch.argmax(logits, dim=-1).item())
+        # --- 1) Gate: WAIT vs PLAY ---
+        if hasattr(self.model, "forward_gate"):
+            gate_logits = self.model.forward_gate(
+                x["history_cards"], x["history_players"], x["deck"], x["opp_deck"]
+            )  # (B,2)
+
+            gate = int(torch.argmax(gate_logits, dim=-1).item())  # 0=WAIT, 1=PLAY (assumed)
+
+            # DEBUG (leave for now)
+            g = gate_logits[0].detach().cpu().tolist()
+            print("GATE logits:", g, "gate argmax:", gate)
+
+            probs = torch.softmax(gate_logits, dim=-1)[0]
+
+            print("GATE logits:", gate_logits[0].detach().cpu().tolist(),
+                  "probs:", probs.detach().cpu().tolist(),
+                  "pad_id:", self.pad_id,
+                  "nonpad:", int((x["history_cards"] != self.pad_id).sum().item()))
+            
+            if gate == 0:
+                return -1  # NOOP
+
+        print("made it to a playing checkpoint")
+        import pdb; pdb.set_trace()
+
+        # --- 2) Slot head: choose which card in hand ---
+        logits = self.model(
+            x["history_cards"], x["history_players"], x["deck"], x["opp_deck"]
+        )  # (B,9) in your case
+
+        K = int(logits.shape[-1])
+        if K != 9:
+            # fallback: if this ever changes
+            slot = int(torch.argmax(logits, dim=-1).item())
+            return max(0, min(3, slot))
+
+        scores = logits[0]  # shape (9,)
+        wait_slot = 8
+
+        # If the model wants to NOOP, OVERRIDE and pick best among 0..3
+        slot = int(torch.argmax(scores).item())
+        if slot == wait_slot:
+            slot = int(torch.argmax(scores[:4]).item())  # best playable slot
+
+        # Clamp to 0..3
+        slot = max(0, min(3, slot))
+
+        # DEBUG
+        print("SLOT logits:", scores.detach().cpu().tolist(), "chosen slot:", slot, "hand tokens:", self._last_hand_token_ids)
+
+        return slot

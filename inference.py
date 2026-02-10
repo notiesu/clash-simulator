@@ -6,7 +6,7 @@ from wrappers.ppo import PPOInferenceModel
 from wrappers.recurrentppo import RecurrentPPOInferenceModel
 from wrappers.randompolicy import RandomPolicyInferenceModel as RandomPolicy
 from wrappers.behavior_cloning import BCInferenceModel, BCArgs
-from wrappers.randompolicy import RandomPolicy
+from wrappers.randompolicy import RandomPolicyInferenceModel
 from wrappers.rppo_onnx import RecurrentPPOONNXInferenceModel
 from stable_baselines3 import PPO
 from src.clasher.gym_env import ClashRoyaleGymEnv
@@ -22,6 +22,9 @@ import json
 Method for transposing observation - switches p0 and p1 views
 NOTE: Action transposition is handled within env step. See gym_env decode_and_deploy for implementation.
 """
+
+DECK = ["Cannon", "Fireball", "HogRider", "IceGolemite", "IceSpirits", "Musketeer", "Skeletons", "Log"]
+
 
 if __name__ == "__main__":
 
@@ -49,7 +52,7 @@ if __name__ == "__main__":
     elif args.p0_model_type == "RecurrentPPO":
         model_p0 = RecurrentPPOInferenceModel()
     elif args.p0_model_type == "RandomPolicy":
-        model_p0 = RandomPolicy(env)
+        model_p0 = RandomPolicyInferenceModel(env, player_id=0)
     elif args.p0_model_type == "BC":
         bc_args = BCArgs(
             token2id_path=args.p0_vocab_json,  # <-- updated name
@@ -67,7 +70,7 @@ if __name__ == "__main__":
     elif args.p1_model_type == "RecurrentPPO":
         model_p1 = RecurrentPPOInferenceModel()
     elif args.p1_model_type == "RandomPolicy":
-        model_p1 = RandomPolicy(env)
+        model_p1 = RandomPolicyInferenceModel(env, player_id=1)
     elif args.p1_model_type == "BC":
         bc_args = BCArgs(
             token2id_path=args.p1_vocab_json,  # <-- updated name
@@ -90,6 +93,8 @@ if __name__ == "__main__":
 
     #set opponent policy for env
     env.set_opponent_policy(model_p1)
+    env.set_player_deck(0, DECK)
+    env.set_player_deck(1, DECK)
 
     if args.printLogs:
         # Set up logging
