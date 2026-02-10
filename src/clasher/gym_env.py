@@ -110,6 +110,7 @@ class ClashRoyaleGymEnv(gym.Env):
             raise IndexError("player_id out of range")
         player = self.battle.players[player_id]
         player.deck = list(deck)
+
         # Set initial hand
         if initial_hand is not None:
             player.hand = list(initial_hand)
@@ -404,6 +405,7 @@ class ClashRoyaleGymEnv(gym.Env):
             "time": self.battle.time,
             "last_action": {
             "player_0": {
+                "action": int(action0),
                 "card_idx": int(p0_card_idx),
                 "card_name": str(card_name),
                 "tile": (int(p0_x_tile), int(p0_y_tile)),
@@ -411,6 +413,7 @@ class ClashRoyaleGymEnv(gym.Env):
                 "success": bool(p0_action_success),
             },
             "player_1": {
+                "action": int(action1),
                 "card_idx": int(p1_card_idx) if len(self.battle.players[1].hand) > 0 else None,
                 "card_name": str(p1_card_name) if len(self.battle.players[1].hand) > 0 else None,
                 "tile": (int(p1_x_tile), int(p1_y_tile)) if len(self.battle.players[1].hand) > 0 else None,

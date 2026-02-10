@@ -4,10 +4,9 @@ From base.py import sim_game method to run the environment loop and log actions 
 from src.clasher.model import InferenceModel
 from wrappers.ppo import PPOInferenceModel
 from wrappers.recurrentppo import RecurrentPPOInferenceModel
-from wrappers.randompolicy import RandomPolicyInferenceModel as RandomPolicy
-from wrappers.behavior_cloning import BCInferenceModel, BCArgs
 from wrappers.randompolicy import RandomPolicyInferenceModel
 from wrappers.rppo_onnx import RecurrentPPOONNXInferenceModel
+from wrappers.behavior_cloning import BCArgs, BCInferenceModel
 from stable_baselines3 import PPO
 from src.clasher.gym_env import ClashRoyaleGymEnv
 import logging
@@ -24,7 +23,6 @@ NOTE: Action transposition is handled within env step. See gym_env decode_and_de
 """
 
 DECK = ["Cannon", "Fireball", "HogRider", "IceGolemite", "IceSpirits", "Musketeer", "Skeletons", "Log"]
-
 
 if __name__ == "__main__":
 
@@ -132,7 +130,7 @@ if __name__ == "__main__":
             logging.info(f"Step: {num_steps}, Reward: {reward}, Info: {info}")
 
             # Log observation details
-            logging.info(f"Observation: {obs}")
+            # logging.info(f"Observation: {obs}")
 
         # Log player information
         for player in info.get("players", []):

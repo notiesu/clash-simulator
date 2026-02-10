@@ -16,24 +16,25 @@ from scripts.train.ppo_wrapper import PPOObsWrapper
 # reuse the same observation wrapper used by PPO inference
 
 
-class RandomPolicyInferenceModel(InferenceModel):
-    def __init__(self, env, player_id):
+class ReplayInferenceModel(InferenceModel):
+    def __init__(self, env, replay_path, player_id=0):
         self.env = env
+        self.replay_path = replay_path
+        with open(replay_path) as f:
+            self.replay_data = [json.loads(line) for line in f if line.strip()]
         self.player_id = player_id
-        self.no_op_pct = 0.5
+        self.current_step = 0
     
     def load_model(self, model_path):
         pass
 
     def predict(self, obs):
-        valid_action_mask = self.env.get_valid_action_mask(self.player_id)
-        valid_actions = np.where(valid_action_mask)[0]
-        if len(valid_actions) == 0:
-            return self.env.no_op_action  # Return no-op if no valid actions    
-        #pad more no-ops if needed to ensure randomness among valid actions
-        if np.random.rand() < self.no_op_pct:
-            return self.env.no_op_action
-        return np.random.choice(valid_actions)
+        if self.current_step >= len(self.replay_data):
+            raise IndexError("Reached end of replay data.")
+        
+        action = self.replay_data[self.current_step]["last_action"][f"player_{self.player_id}"]["action"]
+        self.current_step += 1
+        return action
 
     def preprocess_observation(self, observation):
         return observation  
