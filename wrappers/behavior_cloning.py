@@ -28,6 +28,8 @@ MODEL_TO_ENV = {
                 }
 ENV_TO_MODEL = {v: k for k, v in MODEL_TO_ENV.items()}
 
+BC_MODEL_TICK_RATE = 100
+
 
 @dataclass
 class BCArgs:
@@ -472,6 +474,10 @@ class BCInferenceModel(InferenceModel):
           action = card_idx * actions_per_tile + tile_index
         where card_idx indexes CURRENT HAND: battle.players[player_id].hand
         """
+        tick = getattr(self, "_cur_tick", 0)
+        if tick % BC_MODEL_TICK_RATE != 0:
+            return -1
+
         a = int(model_output[0] if isinstance(model_output, tuple) else model_output)
 
         u = getattr(self.env, "unwrapped", self.env)
@@ -485,7 +491,7 @@ class BCInferenceModel(InferenceModel):
         # --- NOOP / WAIT ---
         # If your env has a true NOOP action id, return it here instead of 0.
         if a == -1 or len(hand) == 0:
-            return 0
+            return -1
 
         # --- a is HAND SLOT ---
         card_idx = max(0, min(len(hand) - 1, a))
@@ -498,6 +504,10 @@ class BCInferenceModel(InferenceModel):
 
     def postprocess_reward(self, info: dict):
         # Keep behavior consistent with other wrappers. If you later want reward shaping, do it here.
+        
+        # update the history for the model to use 
+        self.update_history_from_info(info)
+
         return info.get("reward", 0.0) if isinstance(info, dict) else 0.0
 
     def _get_wait_token_id(self) -> int:
@@ -534,29 +544,29 @@ class BCInferenceModel(InferenceModel):
         self._last_hand_token_ids = hand_token_ids.detach().cpu().tolist()
 
         # --- 1) Gate: WAIT vs PLAY ---
-        if hasattr(self.model, "forward_gate"):
-            gate_logits = self.model.forward_gate(
-                x["history_cards"], x["history_players"], x["deck"], x["opp_deck"]
-            )  # (B,2)
+        #if hasattr(self.model, "forward_gate"):
+        #    gate_logits = self.model.forward_gate(
+        #        x["history_cards"], x["history_players"], x["deck"], x["opp_deck"]
+        #    )  # (B,2)
+#
+        #    gate = int(torch.argmax(gate_logits, dim=-1).item())  # 0=WAIT, 1=PLAY (assumed)
+#
+        #    # DEBUG (leave for now)
+        #    g = gate_logits[0].detach().cpu().tolist()
+        #    print("GATE logits:", g, "gate argmax:", gate)
+#
+        #    probs = torch.softmax(gate_logits, dim=-1)[0]
+#
+        #    print("GATE logits:", gate_logits[0].detach().cpu().tolist(),
+        #          "probs:", probs.detach().cpu().tolist(),
+        #          "pad_id:", self.pad_id,
+        #          "nonpad:", int((x["history_cards"] != self.pad_id).sum().item()))
+        #    
+        #    if gate == 0:
+        #        return -1  # NOOP
+#
+        #print("made it to a playing checkpoint")
 
-            gate = int(torch.argmax(gate_logits, dim=-1).item())  # 0=WAIT, 1=PLAY (assumed)
-
-            # DEBUG (leave for now)
-            g = gate_logits[0].detach().cpu().tolist()
-            print("GATE logits:", g, "gate argmax:", gate)
-
-            probs = torch.softmax(gate_logits, dim=-1)[0]
-
-            print("GATE logits:", gate_logits[0].detach().cpu().tolist(),
-                  "probs:", probs.detach().cpu().tolist(),
-                  "pad_id:", self.pad_id,
-                  "nonpad:", int((x["history_cards"] != self.pad_id).sum().item()))
-            
-            if gate == 0:
-                return -1  # NOOP
-
-        print("made it to a playing checkpoint")
-        
         # --- 2) Slot head: choose which card in hand ---
         logits = self.model(
             x["history_cards"], x["history_players"], x["deck"], x["opp_deck"]
@@ -574,7 +584,7 @@ class BCInferenceModel(InferenceModel):
         # If the model wants to NOOP, OVERRIDE and pick best among 0..3
         slot = int(torch.argmax(scores).item())
         if slot == wait_slot:
-            slot = int(torch.argmax(scores[:4]).item())  # best playable slot
+            return -1
 
         # Clamp to 0..3
         slot = max(0, min(3, slot))
