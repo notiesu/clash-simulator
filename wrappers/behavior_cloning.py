@@ -28,9 +28,6 @@ MODEL_TO_ENV = {
                 }
 ENV_TO_MODEL = {v: k for k, v in MODEL_TO_ENV.items()}
 
-# gym env card name -> bc_model token
-ENV_TO_MODEL = {v: k for k, v in MODEL_TO_ENV.items()}
-
 
 @dataclass
 class BCArgs:
@@ -352,7 +349,11 @@ class BCInferenceModel(InferenceModel):
             success = action.get("success", False)
 
             if success and card_name and card_name != "None":
-                self._hist_cards.append(card_name)
+                model_card = ENV_TO_MODEL.get(card_name, None)
+                if model_card is None:
+                    print("UNKNOWN ENV CARD:", repr(card_name), "not in ENV_TO_MODEL")
+                    return  # or continue
+                self._hist_cards.append(model_card)
                 self._hist_players.append(player_id)
 
     def preprocess_observation(self, observation: Any) -> Dict[str, torch.Tensor]:
