@@ -121,6 +121,9 @@ if __name__ == "__main__":
 
         #env handles p1 action internally
 
+        # current workaround to update game history for bc 
+        model_p0.update_history_from_info(info)
+
         #post process reward 
         #NOTE: For now only processes reward for p0 agent
         reward = model_p0.postprocess_reward(info)
