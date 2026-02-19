@@ -20,6 +20,8 @@ from pettingzoo import ParallelEnv
 from .model import InferenceModel
 from collections import deque
 
+import random
+
 MAX_TOTAL_TOWER_HP = 12086  # 4824 + 2 * 363
 
 class ClashRoyaleGymEnv(gym.Env):
@@ -378,10 +380,11 @@ class ClashRoyaleGymEnv(gym.Env):
             opponent_obs = self.transpose_observation(self._render_obs())
             processed_opp_obs = self.opponent_policy.preprocess_observation(opponent_obs)
 
-            raw_action1 = self.opponent_policy.predict(processed_opp_obs)
+            raw_action1 = self.opponent_policy.predict(processed_opp_obs, self.get_valid_action_mask(1))
             action1 = self.opponent_policy.postprocess_action(raw_action1)
         else:
-            action1 = self.action_space.sample()
+            action1 = self.get_valid_action_mask(1)
+            action1 = np.random.choice(np.where(action1)[0])  # Sample random valid action for opponent if no policy provided
         p1_card_idx, p1_card_name, p1_x_tile, p1_y_tile, p1_deploy_x, p1_deploy_y, p1_action_success = self.decode_and_deploy(1, action1)
         # Advance simulation one tick
         # if not p1_action_success:
@@ -472,6 +475,24 @@ class ClashRoyaleGymEnv(gym.Env):
         info["elixir_waste"] = sum([getattr(p, 'elixir_wasted', 0.0) for p in self.battle.players])
 
         #reshape for pettingzoo
+
+        if terminated or truncated:
+            players = info.get("players", [])
+            if len(players) >= 2:
+                hp_map = {
+                    p.get("player_id"): 
+                    float(p.get("king_hp", 0.0)) +
+                    float(p.get("left_hp", 0.0)) +
+                    float(p.get("right_hp", 0.0))
+                    for p in players
+                }
+
+                our_hp = hp_map.get(0, 0.0)
+                opp_hp = hp_map.get(1, 0.0)
+
+                info["win"] = our_hp > opp_hp
+            else:
+                info["win"] = False
         return observation, reward, terminated, truncated, info
 
     def render(self, mode: str = "rgb_array"):

@@ -11,12 +11,10 @@ logging.basicConfig(level=logging.INFO)
 
 
 class RecurrentPPOONNXInferenceModel(InferenceModel):
-    def __init__(self, model_path, env, deterministic=True, player_id=0, use_cuda=True):
+    def __init__(self, model_path, deterministic=True, use_cuda=True):
         self.model_path = model_path
         
-        self.env = env
         self.deterministic = deterministic
-        self.player_id = player_id
 
         self.reset()
         self.load_model(model_path)
@@ -68,7 +66,7 @@ class RecurrentPPOONNXInferenceModel(InferenceModel):
         return zero, zero
         # ------------------- INFERENCE -------------------
 
-    def predict(self, obs, deterministic=False):
+    def predict(self, obs, deterministic=True, valid_action_mask=None, player_id=None):
         """
         Runs a single ONNX inference step with recurrent state update
         and optional invalid action masking.
@@ -98,8 +96,7 @@ class RecurrentPPOONNXInferenceModel(InferenceModel):
         logits = actions_raw[0]  # remove batch dim, shape = (n_actions,)
 
         # --- apply invalid action mask if provided ---
-        mask = self.env.get_valid_action_mask(self.player_id)  # shape (n_actions,)
-        logits = np.where(mask == 1, logits, -1e9)
+        logits = np.where(valid_action_mask == 1, logits, -1e9)
 
         # --- select action ---
         if deterministic:
@@ -149,3 +146,7 @@ class RecurrentPPOONNXInferenceModel(InferenceModel):
 
     def postprocess_action(self, model_output, agent_id=None):
         return model_output
+    
+    def postprocess_reward(self, info):
+        return 0.0
+        pass

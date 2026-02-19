@@ -14,9 +14,10 @@ import time
 
 # reuse the same observation wrapper used by PPO inference
 
+#TODO - INVALID ACTION MASKING
 
 class RecurrentPPOInferenceModel(InferenceModel):
-    def __init__(self, model_path, eval=False, deterministic=False, player_id=0):
+    def __init__(self, model_path, eval=False, deterministic=False):
         self.load_model(model_path)
         if self.model is None:
             raise ValueError(f"Failed to load RecurrentPPO model from {model_path}")

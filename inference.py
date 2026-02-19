@@ -46,9 +46,9 @@ if __name__ == "__main__":
     elif args.p0_model_type == "RecurrentPPO":
         model_p0 = RecurrentPPOInferenceModel()
     elif args.p0_model_type == "RandomPolicy":
-        model_p0 = RandomPolicyInferenceModel(env, player_id=0)
-    elif args.po_model_type == "RecurrentPPOONNX":
-        model_p0 = RecurrentPPOONNXInferenceModel(args.p0_model_path, env=env, player_id=0)
+        model_p0 = RandomPolicyInferenceModel()
+    elif args.p0_model_type == "RecurrentPPOONNX":
+        model_p0 = RecurrentPPOONNXInferenceModel(args.p0_model_path)
     model_p0.load_model(args.p0_model_path)
 
     #same for player 1
@@ -57,9 +57,9 @@ if __name__ == "__main__":
     elif args.p1_model_type == "RecurrentPPO":
         model_p1 = RecurrentPPOInferenceModel()
     elif args.p1_model_type == "RandomPolicy":
-        model_p1 = RandomPolicyInferenceModel(env, player_id=1)
+        model_p1 = RandomPolicyInferenceModel()
     elif args.p1_model_type == "RecurrentPPOONNX":
-        model_p1 = RecurrentPPOONNXInferenceModel(args.p1_model_path, env=env, player_id=1)
+        model_p1 = RecurrentPPOONNXInferenceModel(args.p1_model_path)
     model_p1.load_model(args.p1_model_path)
 
     logging.info("Both models loaded successfully.")
@@ -92,7 +92,7 @@ if __name__ == "__main__":
         obs_p0 = model_p0.preprocess_observation(obs)
 
         #get actions
-        action_p0 = model_p0.predict(obs_p0)
+        action_p0 = model_p0.predict(obs_p0, valid_action_mask=env.get_valid_action_mask(0))
 
         #post process actions
         action_p0 = model_p0.postprocess_action(action_p0)
