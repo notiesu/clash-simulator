@@ -68,9 +68,8 @@ RESPONSE=$(curl -sS -w "\nHTTP_CODE:%{http_code}\n" \
   -H "Content-Type: application/json" \
   -d '{
     "input": {
-      "train_jsonl": "'"${S3_TRAIN_URI}"'",
-      "val_jsonl": "'"${S3_VAL_URI}"'",
       "epochs": '"${EPOCHS}"',
+      "task": "joint",
       "device": "'"${DEVICE}"'",
       "save_path": "'"${SAVE_PATH}"'",
       "s3_save_uri": "'"${S3_SAVE_URI}"'"
