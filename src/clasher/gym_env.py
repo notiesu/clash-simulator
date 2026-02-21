@@ -39,11 +39,8 @@ class ClashRoyaleGymEnv(gym.Env):
                  data_file: str = "gamedata.json",
                  max_steps: int = 9090,
                  suppress_output: bool = True,
-                 decks_file: Optional[str] = None,
                  deck0: Optional[list] = None,
-                 deck1: Optional[list] = None,
-                 deck0_name: Optional[str] = None,
-                 deck1_name: Optional[str] = None):
+                 deck1: Optional[list] = None):
         super().__init__()
         self.speed_factor = speed_factor
         self.data_file = data_file
@@ -60,10 +57,8 @@ class ClashRoyaleGymEnv(gym.Env):
 
         # Deck configuration options (can be lists of card names or names/indexes referring to decks.json)
         self._decks_file = "decks.json"
-        self._initial_deck0 = deck0
-        self._initial_deck1 = deck1
-        self._initial_deck0_name = deck0_name
-        self._initial_deck1_name = deck1_name
+        self.deck0 = deck0
+        self.deck1 = deck1
 
         self.no_op_action = self.num_cards * self.actions_per_tile
         self.action_space = spaces.Discrete(self.num_cards * self.actions_per_tile + 1)
@@ -85,11 +80,12 @@ class ClashRoyaleGymEnv(gym.Env):
         self.opponent_policy: Optional[InferenceModel] = None
 
         # Apply any initial decks requested by constructor
-        try:
-            self._apply_initial_decks()
-        except Exception:
-            # don't fail init on deck errors; caller can set decks later
-            pass
+
+    def set_opponent_state(self, state):
+        self.opponent_state = state
+    
+    def get_opponent_state(self):
+        return self.opponent_state
 
     def set_opponent_policy(self, model: InferenceModel):
         """Set an opponent policy model to be used for player 1 actions."""
@@ -167,53 +163,6 @@ class ClashRoyaleGymEnv(gym.Env):
         except Exception:
             return []
 
-    def _apply_initial_decks(self):
-        """Apply deck configuration provided at construction time.
-
-        Priority: explicit `deck0`/`deck1` lists > deck names `deck0_name`/`deck1_name` in `decks_file` > first two decks in `decks_file`.
-        """
-        # If explicit lists provided, use them
-        if self._initial_deck0 is not None and self._initial_deck1 is not None:
-            self.set_decks(self._initial_deck0, self._initial_deck1)
-            return
-
-        # Otherwise, try to load from decks_file
-        decks = self._load_decks_file()
-        if not decks:
-            return
-
-        # Helper to resolve by name or index
-        def resolve(name_or_index):
-            if name_or_index is None:
-                return None
-            # integer index
-            try:
-                idx = int(name_or_index)
-                if 0 <= idx < len(decks):
-                    return decks[idx].get('cards', [])
-            except Exception:
-                pass
-            # string name lookup
-            for d in decks:
-                if str(d.get('name', '')).lower() == str(name_or_index).lower():
-                    return d.get('cards', [])
-            return None
-
-        d0 = resolve(self._initial_deck0_name) if self._initial_deck0_name else None
-        d1 = resolve(self._initial_deck1_name) if self._initial_deck1_name else None
-
-        # If neither named decks specified, fall back to first two decks in file
-        if d0 is None and d1 is None:
-            if len(decks) >= 2:
-                self.set_decks(decks[0].get('cards', []), decks[1].get('cards', []))
-            elif len(decks) == 1:
-                self.set_player_deck(0, decks[0].get('cards', []))
-        else:
-            if d0 is not None:
-                self.set_player_deck(0, d0)
-            if d1 is not None:
-                self.set_player_deck(1, d1)
-
     def set_decks(self, deck0: list, deck1: list, hand0: Optional[list] = None, hand1: Optional[list] = None):
         """Convenience to set both players' decks and optional starting hands."""
         self.set_player_deck(0, deck0, initial_hand=hand0)
@@ -245,9 +194,17 @@ class ClashRoyaleGymEnv(gym.Env):
         
 
     def reset(self, *, seed: Optional[int] = None, options: Optional[Dict] = None) -> Tuple[Dict[str, np.ndarray], Dict]:
+        super().reset(seed=seed)  # gym API requires calling super().reset() when overriding
         if seed is not None:
             self.seed(seed)
 
+        if self.deck0:
+            #determine initial hand from seed
+            self.initial_hand_0 = self.np_random.choice(self.deck0, size=4, replace=False).tolist()
+            self.set_player_deck(0, self.deck0, initial_hand=self.initial_hand_0)
+        if self.deck1:
+            self.initial_hand_1 = self.np_random.choice(self.deck1, size=4, replace=False).tolist()
+            self.set_player_deck(1, self.deck1, initial_hand=self.initial_hand_1)
         # Recreate engine & battle to ensure clean state
         self.engine = BattleEngine(self.data_file)
         self.battle = self.engine.create_battle()
@@ -331,9 +288,10 @@ class ClashRoyaleGymEnv(gym.Env):
     
     def decode_and_deploy(self, player_id: int, action: Optional[int] = None):
         # Special sentinel: -1 means "skip deploy" for this player (no play this tick)
-        if action == self.no_op_action or action is None:
+        if action == self.no_op_action or action is None or action == -1:
             # Return a standardized no-op result:
             #this is a successful no-op, not an invalid action, so success=True but other fields are -1 or None
+            action = self.no_op_action  # ensure consistent encoding for no-op
             return -1, None, -1, -1, -1.0, -1.0, True
 
         card_idx = action // self.actions_per_tile
@@ -367,7 +325,7 @@ class ClashRoyaleGymEnv(gym.Env):
         return card_idx, card_name, x_tile, y_tile, deploy_x, deploy_y, action_success
 
     
-    def step(self, action: int):
+    def step(self, action: int, state=None):
         
         # Decode and deploy for both players
         action0 = action
@@ -380,11 +338,11 @@ class ClashRoyaleGymEnv(gym.Env):
             opponent_obs = self.transpose_observation(self._render_obs())
             processed_opp_obs = self.opponent_policy.preprocess_observation(opponent_obs)
 
-            raw_action1 = self.opponent_policy.predict(processed_opp_obs, self.get_valid_action_mask(1))
+            raw_action1, self.opponent_state = self.opponent_policy.predict(processed_opp_obs, valid_action_mask=self.get_valid_action_mask(1), state=state)
             action1 = self.opponent_policy.postprocess_action(raw_action1)
         else:
             action1 = self.get_valid_action_mask(1)
-            action1 = np.random.choice(np.where(action1)[0])  # Sample random valid action for opponent if no policy provided
+            action1 = self.np_random.choice(np.where(action1)[0])  # Sample random valid action for opponent if no policy provided
         p1_card_idx, p1_card_name, p1_x_tile, p1_y_tile, p1_deploy_x, p1_deploy_y, p1_action_success = self.decode_and_deploy(1, action1)
         # Advance simulation one tick
         # if not p1_action_success:
@@ -608,24 +566,29 @@ class ClashRoyaleVectorEnv(AsyncVectorEnv):
     def __init__(self,
                     num_envs: int,
                     opponent_policies: Optional[list[InferenceModel]] = None,
+                    opponent_states: Optional[list] = None,
                     **env_kwargs):
         # Total number of environments
         self.num_envs = num_envs
         self.env_fns = []
        
         for i in range(self.num_envs):
-            def make_env(op_policy):
+            def make_env(op_policy, op_state=None):
                 def _init():
                     env = ClashRoyaleGymEnv(**env_kwargs)
                     if op_policy:
                         env.set_opponent_policy(op_policy)
+                        env.set_opponent_state(op_state)
                     return env
                 return _init
             opponent_policy = None
             if opponent_policies:
                 opponent_policy = opponent_policies[i % len(opponent_policies)]
+                opponent_state = None
+                if opponent_states:
+                    opponent_state = opponent_states[i % len(opponent_states)]
 
-            self.env_fns.append(make_env(opponent_policy))
+            self.env_fns.append(make_env(opponent_policy, op_state=opponent_state))
             
 
         super().__init__(self.env_fns)

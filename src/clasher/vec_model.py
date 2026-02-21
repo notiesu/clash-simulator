@@ -5,6 +5,7 @@ class VecInferenceModel(InferenceModel):
         super().__init__()
         self.model = model
         
+        #look for state arrays, make sure each environment has its own copy to avoid cross-talk
     # ...existing code...
     def preprocess_observation(self, observations):
         """
@@ -33,15 +34,17 @@ class VecInferenceModel(InferenceModel):
         """
         return 0.0
     
-    def predict(self, observations, valid_action_masks=None):
+    def predict(self, observations, valid_action_masks=None, states=None):
         """
         Perform inference using the loaded model.
         This method should be implemented by subclasses.
         """
         actions = []
+        next_states = []
         for i in range(len(observations)):
-            action = self.model.predict(observations[i], valid_action_mask=valid_action_masks[i] if valid_action_masks is not None else None)
+            action, state = self.model.predict(observations[i], valid_action_mask=valid_action_masks[i] if valid_action_masks is not None else None, state=states[i] if states is not None else None)
             actions.append(action)
-        return actions
+            next_states.append(state)
+        return actions, next_states
     
     

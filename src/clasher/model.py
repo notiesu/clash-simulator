@@ -42,7 +42,7 @@ class InferenceModel:
         """
         pass
     
-    def predict(self, observation):
+    def predict(self, observation, valid_action_mask=None, state=None):
         """
         Perform inference using the loaded model.
         This method should be implemented by subclasses.
