@@ -59,6 +59,11 @@ class ClashRoyaleGymEnv(gym.Env):
         self._decks_file = "decks.json"
         self.deck0 = deck0
         self.deck1 = deck1
+        if self.deck0:
+            self.set_player_deck(0, self.deck0)
+        if self.deck1:
+            self.set_player_deck(1, self.deck1)
+
 
         self.no_op_action = self.num_cards * self.actions_per_tile
         self.action_space = spaces.Discrete(self.num_cards * self.actions_per_tile + 1)
@@ -117,6 +122,7 @@ class ClashRoyaleGymEnv(gym.Env):
         # Rebuild cycle queue from remaining deck cards
         remaining = [c for c in player.deck if c not in player.hand]
         player.cycle_queue = deque(remaining)
+
 
     def get_valid_action_mask(self, player_id: int) -> np.ndarray:
         """Return a boolean mask over the discrete action space for the given player_id."""
@@ -198,13 +204,7 @@ class ClashRoyaleGymEnv(gym.Env):
         if seed is not None:
             self.seed(seed)
 
-        if self.deck0:
-            #determine initial hand from seed
-            self.initial_hand_0 = self.np_random.choice(self.deck0, size=4, replace=False).tolist()
-            self.set_player_deck(0, self.deck0, initial_hand=self.initial_hand_0)
-        if self.deck1:
-            self.initial_hand_1 = self.np_random.choice(self.deck1, size=4, replace=False).tolist()
-            self.set_player_deck(1, self.deck1, initial_hand=self.initial_hand_1)
+        
         # Recreate engine & battle to ensure clean state
         self.engine = BattleEngine(self.data_file)
         self.battle = self.engine.create_battle()
@@ -218,6 +218,18 @@ class ClashRoyaleGymEnv(gym.Env):
         }
 
         # (players meta will be attached below alongside entities)
+        if self.deck0:
+            #determine initial hand from seed
+            self.initial_hand_0 = self.np_random.choice(self.deck0, size=4, replace=False).tolist()
+            self.set_player_deck(0, self.deck0, initial_hand=self.initial_hand_0)
+        if self.deck1:
+            self.initial_hand_1 = self.np_random.choice(self.deck1, size=4, replace=False).tolist()
+            self.set_player_deck(1, self.deck1, initial_hand=self.initial_hand_1)
+        # print(f"Player 0 deck set to: {self.battle.players[0].deck}")
+        # print(f"Player 1 deck set to: {self.battle.players[1].deck}")
+        # print(f"Initial hand player 0: {self.battle.players[0].hand}")
+        # print(f"Initial hand player 1: {self.battle.players[1].hand}")
+        # input("Press Enter to continue...")
 
         # entities meta (same format as step)
         entities_meta = []

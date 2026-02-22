@@ -28,13 +28,13 @@ class ReplayInferenceModel(InferenceModel):
     def load_model(self, model_path):
         pass
 
-    def predict(self, obs):
+    def predict(self, obs, valid_action_mask=None, state=None):
         if self.current_step >= len(self.replay_data):
-            raise IndexError("Reached end of replay data.")
+            return 2304, None
         
         action = self.replay_data[self.current_step]["last_action"][f"player_{self.player_id}"]["action"]
         self.current_step += 1
-        return action
+        return int(action), None
 
     def preprocess_observation(self, observation):
         return observation  

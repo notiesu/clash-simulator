@@ -26,15 +26,15 @@ class EvalVectorEnv(ClashRoyaleVectorEnv):
                     **env_kwargs):
         super().__init__(num_envs, opponent_policies, opponent_states, **env_kwargs)
         self.states = [initial_state] * num_envs
+        self.states_active = self.states
 
     def evaluate(self, model: VecInferenceModel, num_episodes=30):
-
+        print(f"Starting evaluation for {num_episodes} episodes per environment...")
         obs, infos = self.reset()
         episode_counts = np.zeros(self.num_envs, dtype=int)
         win_counts = np.zeros(self.num_envs, dtype=int)
 
         while np.any(episode_counts < num_episodes):
-
             # Only act in environments that still need episodes
             active_envs = episode_counts < num_episodes
 
@@ -42,7 +42,6 @@ class EvalVectorEnv(ClashRoyaleVectorEnv):
             obs_active = [o for i, o in enumerate(obs) if active_envs[i]]
             self.states_active = [s for i, s in enumerate(self.states) if active_envs[i]]
             obs_p0 = model.preprocess_observation(obs_active)  # returns list
-
             # get masks for active envs
             masks_all = self.call("get_valid_action_mask", 0)  # list of masks per env
             masks_active = [m for i, m in enumerate(masks_all) if active_envs[i]]

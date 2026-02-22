@@ -8,6 +8,7 @@ from wrappers.randompolicy import RandomPolicyInferenceModel
 from wrappers.rppo_onnx import RecurrentPPOONNXInferenceModel
 from stable_baselines3 import PPO
 from src.clasher.gym_env import ClashRoyaleGymEnv
+from src.clasher.model_state import State, ONNXRPPOState
 import logging
 import argparse
 import numpy as np
@@ -35,9 +36,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Example usage
-    env = ClashRoyaleGymEnv()
-    env.set_player_deck(0, DECK)
-    env.set_player_deck(1, DECK)
+    env = ClashRoyaleGymEnv(deck0=DECK, deck1=DECK)
     print(env.battle.players[0].deck)
     print(env.battle.players[1].deck)
     
@@ -49,6 +48,7 @@ if __name__ == "__main__":
         model_p0 = RandomPolicyInferenceModel()
     elif args.p0_model_type == "RecurrentPPOONNX":
         model_p0 = RecurrentPPOONNXInferenceModel(args.p0_model_path)
+        state = ONNXRPPOState()
     model_p0.load_model(args.p0_model_path)
 
     #same for player 1
@@ -92,7 +92,7 @@ if __name__ == "__main__":
         obs_p0 = model_p0.preprocess_observation(obs)
 
         #get actions
-        action_p0 = model_p0.predict(obs_p0, valid_action_mask=env.get_valid_action_mask(0))
+        action_p0, state = model_p0.predict(obs_p0, valid_action_mask=env.get_valid_action_mask(0), state=state)
 
         #post process actions
         action_p0 = model_p0.postprocess_action(action_p0)

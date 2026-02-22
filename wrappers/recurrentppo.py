@@ -17,10 +17,8 @@ import time
 #TODO - INVALID ACTION MASKING
 
 class RecurrentPPOInferenceModel(InferenceModel):
-    def __init__(self, model_path, eval=False, deterministic=False):
+    def __init__(self, model_path=None, eval=False, deterministic=False):
         self.load_model(model_path)
-        if self.model is None:
-            raise ValueError(f"Failed to load RecurrentPPO model from {model_path}")
         self.episode_start = None
         #some custom parameters for reward shaping
         self._prev_tower_hps = None
@@ -79,6 +77,8 @@ class RecurrentPPOInferenceModel(InferenceModel):
 
     
     def load_model(self, model_path):
+        if model_path is None:
+            return
         self.model = RecurrentPPO.load(model_path)
         if hasattr(self.model.policy, "lstm"):
             self.model.policy.lstm.flatten_parameters()
@@ -91,7 +91,7 @@ class RecurrentPPOInferenceModel(InferenceModel):
             with torch.inference_mode():
                 if self.use_autocast and torch.cuda.is_available():
                     with torch.cuda.amp.autocast():
-                        action, self.state = self.model.predict(
+                        action, next_state = self.model.predict(
                             obs,
                             self.state,
                             self.episode_start,
@@ -99,7 +99,7 @@ class RecurrentPPOInferenceModel(InferenceModel):
                         )
                 else:
                     #instead of predict, use forward
-                    action, self.state = self.model.predict(
+                    action, next_state = self.model.predict(
                         obs,
                         self.state,
                         self.episode_start,
@@ -114,6 +114,7 @@ class RecurrentPPOInferenceModel(InferenceModel):
             )
         # Ensure next_state is defined consistently when using eval_mod
         # Validate predicted action against mask if provided; be robust to different mask types
+        # print(next_state)
         if valid_action_mask[action] == 1:
             return action, next_state
         else:
