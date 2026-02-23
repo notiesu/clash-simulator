@@ -19,6 +19,7 @@ from .arena import TileGrid, Position
 from pettingzoo import ParallelEnv
 from .model import InferenceModel
 from collections import deque
+from .model_state import State
 
 import random
 
@@ -40,7 +41,9 @@ class ClashRoyaleGymEnv(gym.Env):
                  max_steps: int = 9090,
                  suppress_output: bool = True,
                  deck0: Optional[list] = None,
-                 deck1: Optional[list] = None):
+                 deck1: Optional[list] = None,
+                 opponent_policy: Optional[InferenceModel] = None,
+                 opponent_state: Optional[State] = None,):
         super().__init__()
         self.speed_factor = speed_factor
         self.data_file = data_file
@@ -82,12 +85,14 @@ class ClashRoyaleGymEnv(gym.Env):
 
         # Set opponent policy - can embed within the environment step
         # Opponent policy: either None (no embedded opponent) or an InferenceModel instance
-        self.opponent_policy: Optional[InferenceModel] = None
-
+        if opponent_policy:
+            self.set_opponent_policy(opponent_policy)
+        if opponent_state:
+            self.initial_state = opponent_state
+            self.opponent_state = opponent_state
+        
+        print(type(opponent_state))
         # Apply any initial decks requested by constructor
-
-    def set_opponent_state(self, state):
-        self.opponent_state = state
     
     def get_opponent_state(self):
         return self.opponent_state
@@ -216,6 +221,7 @@ class ClashRoyaleGymEnv(gym.Env):
             "tick": self.battle.tick,
             "time": self.battle.time,
         }
+        self.opponent_state = self.initial_state
 
         # (players meta will be attached below alongside entities)
         if self.deck0:
@@ -350,7 +356,7 @@ class ClashRoyaleGymEnv(gym.Env):
             opponent_obs = self.transpose_observation(self._render_obs())
             processed_opp_obs = self.opponent_policy.preprocess_observation(opponent_obs)
 
-            raw_action1, self.opponent_state = self.opponent_policy.predict(processed_opp_obs, valid_action_mask=self.get_valid_action_mask(1), state=state)
+            raw_action1, self.opponent_state = self.opponent_policy.predict(processed_opp_obs, valid_action_mask=self.get_valid_action_mask(1), state=self.opponent_state)
             action1 = self.opponent_policy.postprocess_action(raw_action1)
         else:
             action1 = self.get_valid_action_mask(1)
@@ -444,25 +450,8 @@ class ClashRoyaleGymEnv(gym.Env):
         info["players"] = players_meta
         info["elixir_waste"] = sum([getattr(p, 'elixir_wasted', 0.0) for p in self.battle.players])
 
-        #reshape for pettingzoo
-
-        if terminated or truncated:
-            players = info.get("players", [])
-            if len(players) >= 2:
-                hp_map = {
-                    p.get("player_id"): 
-                    float(p.get("king_hp", 0.0)) +
-                    float(p.get("left_hp", 0.0)) +
-                    float(p.get("right_hp", 0.0))
-                    for p in players
-                }
-
-                our_hp = hp_map.get(0, 0.0)
-                opp_hp = hp_map.get(1, 0.0)
-
-                info["win"] = our_hp > opp_hp
-            else:
-                info["win"] = False
+        # Determine winner from battle state (0 or 1) or None if no clear winner
+        info["win"] = self.battle.winner
         return observation, reward, terminated, truncated, info
 
     def render(self, mode: str = "rgb_array"):
@@ -494,11 +483,15 @@ class ClashRoyaleGymEnv(gym.Env):
 
 
     def _render_obs(self) -> np.ndarray:
+        #TODO - Observation ideas
+        #Own hand, elixir, opponent hand, elixir 
+    
         """Render a 128x128x3 observation tensor with channels:
 
         - channel 0: owner mask (255 for player0, 128 for player1, 0 background)
         - channel 1: unit type id (0 background, 1..254 mapped per unit name)
         - channel 2: HP fraction encoded 0..255
+
 
         This keeps visualization concerns separate from the observation encoding.
         """
@@ -587,18 +580,15 @@ class ClashRoyaleVectorEnv(AsyncVectorEnv):
         for i in range(self.num_envs):
             def make_env(op_policy, op_state=None):
                 def _init():
-                    env = ClashRoyaleGymEnv(**env_kwargs)
-                    if op_policy:
-                        env.set_opponent_policy(op_policy)
-                        env.set_opponent_state(op_state)
+                    env = ClashRoyaleGymEnv(opponent_policy=op_policy, opponent_state=op_state, **env_kwargs)
                     return env
                 return _init
             opponent_policy = None
+            opponent_state = None
             if opponent_policies:
                 opponent_policy = opponent_policies[i % len(opponent_policies)]
-                opponent_state = None
-                if opponent_states:
-                    opponent_state = opponent_states[i % len(opponent_states)]
+            if opponent_states:
+                opponent_state = opponent_states[i % len(opponent_states)]
 
             self.env_fns.append(make_env(opponent_policy, op_state=opponent_state))
             

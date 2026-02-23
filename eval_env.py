@@ -27,16 +27,18 @@ class EvalVectorEnv(ClashRoyaleVectorEnv):
         super().__init__(num_envs, opponent_policies, opponent_states, **env_kwargs)
         self.states = [initial_state] * num_envs
         self.states_active = self.states
+        self.battle_count = 0
+        self.win_count = 0
 
-    def evaluate(self, model: VecInferenceModel, num_episodes=30):
+    def evaluate(self, model: VecInferenceModel, num_episodes=5):
         print(f"Starting evaluation for {num_episodes} episodes per environment...")
         obs, infos = self.reset()
-        episode_counts = np.zeros(self.num_envs, dtype=int)
+        episode_count = 0
         win_counts = np.zeros(self.num_envs, dtype=int)
-
-        while np.any(episode_counts < num_episodes):
-            # Only act in environments that still need episodes
-            active_envs = episode_counts < num_episodes
+        active_envs = np.array([True] * self.num_envs)
+        
+        while episode_count < num_episodes:
+            # Only act in environments that still need episodes 
 
             # preprocess all observations for active envs
             obs_active = [o for i, o in enumerate(obs) if active_envs[i]]
@@ -57,13 +59,14 @@ class EvalVectorEnv(ClashRoyaleVectorEnv):
                     action_p0[i] = actions_active[j]
                     j += 1
                 else:
-                    action_p0[i] = -1  # dummy action for finished envs
+                    action_p0[i] = 2304  # dummy action for finished envs
 
             # # Step all envs at once
             # print(f"Stepping envs with actions: {action_p0}")
             
-            obs, rewards, dones, truncateds, infos = self.step(action_p0)
-            action_p1 = infos['last_action']['player_1']['action']
+            obs, rewards, dones, _, infos = self.step(action_p0)
+            active_envs = np.logical_and(active_envs, np.logical_not(dones))
+            # action_p1 = infos['last_action']['player_1']['action']
             # print(f"Opponent actions: {action_p1}")
             # if (action_p0[0] != action_p0[1]):
             #     print(f"Tick {infos['tick'][0]} different in env 0 and env1")
@@ -80,27 +83,33 @@ class EvalVectorEnv(ClashRoyaleVectorEnv):
             # print(f"environment 2 player 0 elixir: {infos['players'][1][0]['elixir']}")
             # print(f"environment 2 player 1 elixir: {infos['players'][1][1]['elixir']}")
             
-            finished = np.logical_or(dones, truncateds)
+            #if no more active_envs, update episode count and win count
+            if np.all(active_envs == False):
+                episode_count += 1
+                active_envs = np.array([True] * self.num_envs)  # reset for next episode
+
             for i in range(self.num_envs):
-                if finished[i]:
-                    print(f"Env {i} finished episode {episode_counts[i]+1}")
-                    episode_counts[i] += 1
+                if dones[i]:
+                    self.battle_count += 1
+                    print(f"Env {i} finished episode {episode_count}")
                     # make sure info access is correct
                     win = infos.get('win', None)
                     if (win is not None and isinstance(win, list) and len(win) > i):
                         if win[i] == 1:
+                            self.win_count += 1
                             win_counts[i] += 1
-                    else:
-                        # fallback if info is not dict
-                        pass
+                        print(f"Env {i} win: {win[i]}")
+                    print(f"Current overall win rate: {(self.win_count/self.battle_count)*100:.2f}% ({self.win_count}/{self.battle_count})")
+                    
+
+                else:
+                    # fallback if info is not dict
+                    pass
 
         # print results
+        print("Evaluation completed")
+        print(f"Overall win rate: {(self.win_count/self.battle_count)*100:.2f}% ({self.win_count}/{self.battle_count})")
         for i in range(self.num_envs):
-            if episode_counts[i] > 0:
-                print(
-                    f"Env {i}: {win_counts[i]} wins out of "
-                    f"{episode_counts[i]} episodes "
-                    f"({(win_counts[i]/episode_counts[i])*100:.2f}%)"
-                )
-            else:
-                print(f"Env {i}: No episodes completed")
+            print(
+                f"Env {i}: {win_counts[i]} wins out of {num_episodes} episodes ({(win_counts[i]/num_episodes)*100:.2f}%)"
+            )

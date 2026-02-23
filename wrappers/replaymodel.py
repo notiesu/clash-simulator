@@ -17,24 +17,24 @@ from scripts.train.ppo_wrapper import PPOObsWrapper
 
 
 class ReplayInferenceModel(InferenceModel):
-    def __init__(self, env, replay_path, player_id=0):
-        self.env = env
+    def __init__(self, replay_path, player_id=0):
         self.replay_path = replay_path
         with open(replay_path) as f:
             self.replay_data = [json.loads(line) for line in f if line.strip()]
         self.player_id = player_id
-        self.current_step = 0
     
     def load_model(self, model_path):
-        pass
+        self.replay_path = model_path
+        with open(model_path) as f:
+            self.replay_data = [json.loads(line) for line in f if line.strip()]
 
     def predict(self, obs, valid_action_mask=None, state=None):
-        if self.current_step >= len(self.replay_data):
-            return 2304, None
+        if state.tick >= len(self.replay_data):
+            return 2304, state
         
-        action = self.replay_data[self.current_step]["last_action"][f"player_{self.player_id}"]["action"]
-        self.current_step += 1
-        return int(action), None
+        action = self.replay_data[state.tick]["last_action"][f"player_{self.player_id}"]["action"]
+        state.tick += 1
+        return int(action), state
 
     def preprocess_observation(self, observation):
         return observation  
