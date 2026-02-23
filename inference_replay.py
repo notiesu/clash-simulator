@@ -32,6 +32,8 @@ ARENA_HEIGHT = 32 * TILE_SIZE  # 704 pixels
 ARENA_X = 50
 ARENA_Y = 50
 
+DECK = ["Cannon", "Fireball", "HogRider", "IceGolemite", "IceSpirits", "Musketeer", "Skeletons", "Log"]
+
 
 class ReplayVisualizer(BattleVisualizer):
     def __init__(self, replay_path):
@@ -43,8 +45,9 @@ class ReplayVisualizer(BattleVisualizer):
         self.p0_model = ReplayInferenceModel(env=self.env, replay_path=replay_path, player_id=0)
         self.p1_model = ReplayInferenceModel(env=self.env, replay_path=replay_path, player_id=1)
         self.env.set_opponent_policy(self.p1_model)
+        self.env.set_player_deck(0, DECK)
+        self.env.set_player_deck(1, DECK)
         
-
     def setup_test_battle(self):
         # overwriting to pass this
         pass

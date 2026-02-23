@@ -55,6 +55,7 @@ if __name__ == "__main__":
         bc_args = BCArgs(
             token2id_path=args.p0_vocab_json,  # <-- updated name
             pad_id=args.pad_id,
+            model_path=args.p0_model_path,
             history_len=args.history_len,
             device=args.device,
         )
