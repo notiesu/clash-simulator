@@ -1,6 +1,6 @@
 {
-    "tick": 9201,
-    "time": 303.6329999999762,
+    "tick": 10910,
+    "time": 360.03000000000264,
     "last_action": {
         "player_0": {
             "action": 2304,
@@ -33,6 +33,38 @@
     },
     "entities": [
         {
+            "id": 1,
+            "type_name": "Tower",
+            "type_id": 1,
+            "player_id": 0,
+            "position": [
+                3.5,
+                6.5
+            ],
+            "pixel": [
+                24,
+                26
+            ],
+            "hp": 3631.0,
+            "hp_frac": 1.0
+        },
+        {
+            "id": 2,
+            "type_name": "Tower",
+            "type_id": 1,
+            "player_id": 0,
+            "position": [
+                14.5,
+                6.5
+            ],
+            "pixel": [
+                103,
+                26
+            ],
+            "hp": 1341.0,
+            "hp_frac": 0.36931974662627376
+        },
+        {
             "id": 3,
             "type_name": "KingTower",
             "type_id": 2,
@@ -49,229 +81,646 @@
             "hp_frac": 1.0
         },
         {
-            "id": 956,
-            "type_name": "Archer",
-            "type_id": 4,
+            "id": 4,
+            "type_name": "Tower",
+            "type_id": 1,
             "player_id": 1,
             "position": [
-                12.59499686072749,
-                8.206265380785759
+                3.5,
+                25.5
             ],
             "pixel": [
-                89,
-                32
+                24,
+                102
             ],
-            "hp": 308.0,
+            "hp": 3411.0,
+            "hp_frac": 0.9394106306802533
+        },
+        {
+            "id": 5,
+            "type_name": "Tower",
+            "type_id": 1,
+            "player_id": 1,
+            "position": [
+                14.5,
+                25.5
+            ],
+            "pixel": [
+                103,
+                102
+            ],
+            "hp": 3631.0,
             "hp_frac": 1.0
         },
         {
-            "id": 957,
-            "type_name": "Archer",
+            "id": 6,
+            "type_name": "KingTower",
+            "type_id": 2,
+            "player_id": 1,
+            "position": [
+                9.0,
+                29.5
+            ],
+            "pixel": [
+                64,
+                118
+            ],
+            "hp": 4824.0,
+            "hp_frac": 1.0
+        },
+        {
+            "id": 856,
+            "type_name": "IceSpirits",
+            "type_id": 7,
+            "player_id": 0,
+            "position": [
+                3.4686659712791474,
+                15.377534174883673
+            ],
+            "pixel": [
+                24,
+                61
+            ],
+            "hp": 7.0,
+            "hp_frac": 0.030042918454935622
+        },
+        {
+            "id": 861,
+            "type_name": "Cannon",
+            "type_id": 6,
+            "player_id": 0,
+            "position": [
+                6.5,
+                0.5
+            ],
+            "pixel": [
+                46,
+                2
+            ],
+            "hp": 30.394000000004517,
+            "hp_frac": 0.03640000000000541
+        },
+        {
+            "id": 866,
+            "type_name": "Cannon",
+            "type_id": 6,
+            "player_id": 1,
+            "position": [
+                6.5,
+                31.5
+            ],
+            "pixel": [
+                46,
+                126
+            ],
+            "hp": 55.19350000000456,
+            "hp_frac": 0.06610000000000546
+        },
+        {
+            "id": 872,
+            "type_name": "IceGolemite",
+            "type_id": 5,
+            "player_id": 0,
+            "position": [
+                2.6239407072517746,
+                18.21098502485601
+            ],
+            "pixel": [
+                18,
+                72
+            ],
+            "hp": 251.0,
+            "hp_frac": 0.20692497938994228
+        },
+        {
+            "id": 886,
+            "type_name": "IceSpirits",
+            "type_id": 7,
+            "player_id": 0,
+            "position": [
+                3.5650040646276273,
+                15.359303179829245
+            ],
+            "pixel": [
+                25,
+                61
+            ],
+            "hp": 120.0,
+            "hp_frac": 0.5150214592274678
+        },
+        {
+            "id": 897,
+            "type_name": "Cannon",
+            "type_id": 6,
+            "player_id": 0,
+            "position": [
+                6.5,
+                0.5
+            ],
+            "pixel": [
+                46,
+                2
+            ],
+            "hp": 256.34500000000344,
+            "hp_frac": 0.3070000000000041
+        },
+        {
+            "id": 901,
+            "type_name": "Cannon",
+            "type_id": 6,
+            "player_id": 1,
+            "position": [
+                12.5,
+                27.5
+            ],
+            "pixel": [
+                88,
+                110
+            ],
+            "hp": 282.0630000000033,
+            "hp_frac": 0.33780000000000393
+        },
+        {
+            "id": 903,
+            "type_name": "IceGolemite",
+            "type_id": 5,
+            "player_id": 0,
+            "position": [
+                3.9180298390596704,
+                13.840179164858231
+            ],
+            "pixel": [
+                27,
+                55
+            ],
+            "hp": 1213.0,
+            "hp_frac": 1.0
+        },
+        {
+            "id": 916,
+            "type_name": "IceSpirits",
+            "type_id": 7,
+            "player_id": 0,
+            "position": [
+                3.5715648922645387,
+                15.35861037995475
+            ],
+            "pixel": [
+                25,
+                61
+            ],
+            "hp": 120.0,
+            "hp_frac": 0.5150214592274678
+        },
+        {
+            "id": 919,
+            "type_name": "IceGolemite",
+            "type_id": 5,
+            "player_id": 1,
+            "position": [
+                14.423722711952422,
+                11.72481680783379
+            ],
+            "pixel": [
+                102,
+                46
+            ],
+            "hp": 826.0,
+            "hp_frac": 0.6809563066776587
+        },
+        {
+            "id": 924,
+            "type_name": "Cannon",
+            "type_id": 6,
+            "player_id": 0,
+            "position": [
+                6.5,
+                0.5
+            ],
+            "pixel": [
+                46,
+                2
+            ],
+            "hp": 481.3775000000021,
+            "hp_frac": 0.5765000000000026
+        },
+        {
+            "id": 926,
+            "type_name": "Skeletons",
+            "type_id": 4,
+            "player_id": 0,
+            "position": [
+                3.5197302755906716,
+                15.93027177549955
+            ],
+            "pixel": [
+                25,
+                63
+            ],
+            "hp": 82.0,
+            "hp_frac": 1.0
+        },
+        {
+            "id": 927,
+            "type_name": "Skeletons",
+            "type_id": 4,
+            "player_id": 0,
+            "position": [
+                3.487926946303671,
+                15.99777479782247
+            ],
+            "pixel": [
+                24,
+                63
+            ],
+            "hp": 82.0,
+            "hp_frac": 1.0
+        },
+        {
+            "id": 928,
+            "type_name": "Skeletons",
+            "type_id": 4,
+            "player_id": 0,
+            "position": [
+                3.5214217098651543,
+                15.84958023343717
+            ],
+            "pixel": [
+                25,
+                63
+            ],
+            "hp": 82.0,
+            "hp_frac": 1.0
+        },
+        {
+            "id": 929,
+            "type_name": "Cannon",
+            "type_id": 6,
+            "player_id": 1,
+            "position": [
+                4.5,
+                27.5
+            ],
+            "pixel": [
+                32,
+                110
+            ],
+            "hp": 508.01400000000194,
+            "hp_frac": 0.6084000000000023
+        },
+        {
+            "id": 934,
+            "type_name": "IceGolemite",
+            "type_id": 5,
+            "player_id": 0,
+            "position": [
+                5.074978217185934,
+                7.862612544539131
+            ],
+            "pixel": [
+                36,
+                31
+            ],
+            "hp": 1213.0,
+            "hp_frac": 1.0
+        },
+        {
+            "id": 935,
+            "type_name": "Skeletons",
             "type_id": 4,
             "player_id": 1,
             "position": [
-                12.59499686072749,
-                8.206265380785759
+                2.8271000794751684,
+                17.80826284899652
             ],
             "pixel": [
-                89,
-                32
+                20,
+                71
             ],
-            "hp": 308.0,
+            "hp": 82.0,
+            "hp_frac": 1.0
+        },
+        {
+            "id": 936,
+            "type_name": "Skeletons",
+            "type_id": 4,
+            "player_id": 1,
+            "position": [
+                2.843987704959965,
+                17.795657040417815
+            ],
+            "pixel": [
+                20,
+                71
+            ],
+            "hp": 82.0,
+            "hp_frac": 1.0
+        },
+        {
+            "id": 937,
+            "type_name": "Skeletons",
+            "type_id": 4,
+            "player_id": 1,
+            "position": [
+                2.833561471833315,
+                17.810317687740028
+            ],
+            "pixel": [
+                20,
+                71
+            ],
+            "hp": 82.0,
+            "hp_frac": 1.0
+        },
+        {
+            "id": 944,
+            "type_name": "IceSpirits",
+            "type_id": 7,
+            "player_id": 0,
+            "position": [
+                3.7395011914317062,
+                14.262178069123275
+            ],
+            "pixel": [
+                26,
+                57
+            ],
+            "hp": 233.0,
+            "hp_frac": 1.0
+        },
+        {
+            "id": 947,
+            "type_name": "IceGolemite",
+            "type_id": 5,
+            "player_id": 1,
+            "position": [
+                5.469146464445815,
+                24.86115909000614
+            ],
+            "pixel": [
+                38,
+                99
+            ],
+            "hp": 1213.0,
+            "hp_frac": 1.0
+        },
+        {
+            "id": 953,
+            "type_name": "Cannon",
+            "type_id": 6,
+            "player_id": 0,
+            "position": [
+                6.5,
+                0.5
+            ],
+            "pixel": [
+                46,
+                2
+            ],
+            "hp": 707.3285000000008,
+            "hp_frac": 0.847100000000001
+        },
+        {
+            "id": 957,
+            "type_name": "Skeletons",
+            "type_id": 4,
+            "player_id": 0,
+            "position": [
+                5.817753168989367,
+                5.764122580340692
+            ],
+            "pixel": [
+                41,
+                23
+            ],
+            "hp": 82.0,
+            "hp_frac": 1.0
+        },
+        {
+            "id": 958,
+            "type_name": "Skeletons",
+            "type_id": 4,
+            "player_id": 0,
+            "position": [
+                5.184664242984999,
+                6.7606174609760465
+            ],
+            "pixel": [
+                36,
+                27
+            ],
+            "hp": 82.0,
+            "hp_frac": 1.0
+        },
+        {
+            "id": 959,
+            "type_name": "Skeletons",
+            "type_id": 4,
+            "player_id": 0,
+            "position": [
+                5.252691640816176,
+                5.592670581698521
+            ],
+            "pixel": [
+                37,
+                22
+            ],
+            "hp": 82.0,
+            "hp_frac": 1.0
+        },
+        {
+            "id": 960,
+            "type_name": "Cannon",
+            "type_id": 6,
+            "player_id": 1,
+            "position": [
+                0.5,
+                23.5
+            ],
+            "pixel": [
+                3,
+                94
+            ],
+            "hp": 732.1280000000006,
+            "hp_frac": 0.8768000000000007
+        },
+        {
+            "id": 962,
+            "type_name": "IceSpirits",
+            "type_id": 7,
+            "player_id": 1,
+            "position": [
+                2.1548224525252295,
+                19.05769232548641
+            ],
+            "pixel": [
+                15,
+                76
+            ],
+            "hp": 233.0,
+            "hp_frac": 1.0
+        },
+        {
+            "id": 967,
+            "type_name": "IceGolemite",
+            "type_id": 5,
+            "player_id": 0,
+            "position": [
+                6.2272235531247,
+                1.9093449755223517
+            ],
+            "pixel": [
+                44,
+                7
+            ],
+            "hp": 1213.0,
+            "hp_frac": 1.0
+        },
+        {
+            "id": 968,
+            "type_name": "Skeletons",
+            "type_id": 4,
+            "player_id": 1,
+            "position": [
+                15.074253676257932,
+                25.59256678361778
+            ],
+            "pixel": [
+                107,
+                102
+            ],
+            "hp": 82.0,
+            "hp_frac": 1.0
+        },
+        {
+            "id": 969,
+            "type_name": "Skeletons",
+            "type_id": 4,
+            "player_id": 1,
+            "position": [
+                14.217873812630025,
+                26.041768408503653
+            ],
+            "pixel": [
+                101,
+                104
+            ],
+            "hp": 82.0,
+            "hp_frac": 1.0
+        },
+        {
+            "id": 970,
+            "type_name": "Skeletons",
+            "type_id": 4,
+            "player_id": 1,
+            "position": [
+                14.243449747221003,
+                24.99581833100605
+            ],
+            "pixel": [
+                101,
+                99
+            ],
+            "hp": 82.0,
+            "hp_frac": 1.0
+        },
+        {
+            "id": 973,
+            "type_name": "Tower",
+            "type_id": 1,
+            "player_id": 0,
+            "position": [
+                14.43255964069256,
+                11.119507744114788
+            ],
+            "pixel": [
+                102,
+                44
+            ],
+            "hp": 1.0,
             "hp_frac": 1.0
         },
         {
             "id": 974,
-            "type_name": "Knight",
-            "type_id": 3,
+            "type_name": "Tower",
+            "type_id": 1,
             "player_id": 1,
             "position": [
-                11.599493996704894,
-                5.323513815535929
+                3.2855889404322687,
+                23.531643351032386
             ],
             "pixel": [
-                82,
-                21
+                23,
+                94
             ],
-            "hp": 816.0,
-            "hp_frac": 0.45612073784237006
+            "hp": 1.0,
+            "hp_frac": 1.0
         },
         {
-            "id": 1018,
-            "type_name": "Musketeer",
-            "type_id": 6,
+            "id": 975,
+            "type_name": "RollingProjectile",
+            "type_id": 8,
             "player_id": 0,
             "position": [
-                6.82919095672439,
-                23.907249958359486
+                6.5,
+                0.5
             ],
             "pixel": [
-                48,
-                95
+                46,
+                2
             ],
-            "hp": 731.0,
+            "hp": 1.0,
             "hp_frac": 1.0
         },
         {
-            "id": 1045,
-            "type_name": "BabyDragon",
-            "type_id": 7,
-            "player_id": 0,
-            "position": [
-                7.476653105254899,
-                26.3675995774352
-            ],
-            "pixel": [
-                53,
-                105
-            ],
-            "hp": 949.0,
-            "hp_frac": 0.8131962296486718
-        },
-        {
-            "id": 1046,
-            "type_name": "BabyDragon",
-            "type_id": 7,
+            "id": 976,
+            "type_name": "RollingProjectile",
+            "type_id": 8,
             "player_id": 1,
             "position": [
-                11.952482260785214,
-                7.119132078344755
+                11.5,
+                17.5
             ],
             "pixel": [
-                84,
-                28
+                81,
+                70
             ],
-            "hp": 1048.0,
-            "hp_frac": 0.8980291345329906
-        },
-        {
-            "id": 1096,
-            "type_name": "Knight",
-            "type_id": 3,
-            "player_id": 1,
-            "position": [
-                15.83264812332533,
-                26.32905077078385
-            ],
-            "pixel": [
-                112,
-                105
-            ],
-            "hp": 1789.0,
-            "hp_frac": 1.0
-        },
-        {
-            "id": 1117,
-            "type_name": "Archer",
-            "type_id": 4,
-            "player_id": 0,
-            "position": [
-                2.6845540858900048,
-                21.543508648589935
-            ],
-            "pixel": [
-                19,
-                86
-            ],
-            "hp": 308.0,
-            "hp_frac": 1.0
-        },
-        {
-            "id": 1118,
-            "type_name": "Archer",
-            "type_id": 4,
-            "player_id": 0,
-            "position": [
-                1.8696569217874377,
-                21.434328839316603
-            ],
-            "pixel": [
-                13,
-                85
-            ],
-            "hp": 308.0,
-            "hp_frac": 1.0
-        },
-        {
-            "id": 1119,
-            "type_name": "Minions",
-            "type_id": 5,
-            "player_id": 1,
-            "position": [
-                15.525885706855036,
-                24.690948375873862
-            ],
-            "pixel": [
-                110,
-                98
-            ],
-            "hp": 233.0,
-            "hp_frac": 1.0
-        },
-        {
-            "id": 1120,
-            "type_name": "Minions",
-            "type_id": 5,
-            "player_id": 1,
-            "position": [
-                14.710033294615625,
-                25.085547488867793
-            ],
-            "pixel": [
-                104,
-                100
-            ],
-            "hp": 233.0,
-            "hp_frac": 1.0
-        },
-        {
-            "id": 1121,
-            "type_name": "Minions",
-            "type_id": 5,
-            "player_id": 1,
-            "position": [
-                14.837616387030877,
-                23.972050274992593
-            ],
-            "pixel": [
-                105,
-                95
-            ],
-            "hp": 233.0,
+            "hp": 1.0,
             "hp_frac": 1.0
         }
     ],
     "players": [
         {
             "player_id": 0,
-            "elixir": 1.4683333333333557,
+            "elixir": 0.13166666666664117,
             "elixir_waste": 0.0,
             "hand": [
-                "Wizard",
-                "Balloon",
-                "Giant",
-                "Musketeer"
+                "IceSpirits",
+                "HogRider",
+                "Musketeer",
+                "Fireball"
             ],
-            "crowns": 2,
+            "crowns": 0,
             "king_hp": 4824.0,
-            "left_hp": 0.0,
-            "right_hp": 0.0
+            "left_hp": 3631.0,
+            "right_hp": 1341.0
         },
         {
             "player_id": 1,
-            "elixir": 1.4683333333333557,
+            "elixir": 0.13166666666665136,
             "elixir_waste": 0.0,
             "hand": [
-                "Musketeer",
-                "Wizard",
-                "Giant",
-                "Balloon"
+                "Fireball",
+                "IceGolemite",
+                "HogRider",
+                "Musketeer"
             ],
-            "crowns": 3,
-            "king_hp": 0.0,
-            "left_hp": 0.0,
-            "right_hp": 0.0
+            "crowns": 0,
+            "king_hp": 4824.0,
+            "left_hp": 3411.0,
+            "right_hp": 3631.0
         }
     ],
-    "elixir_waste": 0.0
+    "elixir_waste": 0.0,
+    "win": false
 }

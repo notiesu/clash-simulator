@@ -9,6 +9,7 @@ from wrappers.rppo_onnx import RecurrentPPOONNXInferenceModel
 from wrappers.behavior_cloning import BCArgs, BCInferenceModel
 from stable_baselines3 import PPO
 from src.clasher.gym_env import ClashRoyaleGymEnv
+from src.clasher.model_state import State, ONNXRPPOState
 import logging
 import argparse
 import numpy as np
@@ -42,9 +43,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Example usage
-    env = ClashRoyaleGymEnv()
-
-    #same for player 0 selection
+    env = ClashRoyaleGymEnv(deck0=DECK, deck1=DECK)
+    print(env.battle.players[0].deck)
+    print(env.battle.players[1].deck)
+    
     if args.p0_model_type == "PPO":
         model_p0 = PPOInferenceModel()
     elif args.p0_model_type == "RecurrentPPO":
@@ -113,7 +115,7 @@ if __name__ == "__main__":
         obs_p0 = model_p0.preprocess_observation(obs)
 
         #get actions
-        action_p0 = model_p0.predict(obs_p0)
+        action_p0, state = model_p0.predict(obs_p0, valid_action_mask=env.get_valid_action_mask(0), state=state)
 
         #post process actions
         action_p0 = model_p0.postprocess_action(action_p0)

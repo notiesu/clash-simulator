@@ -4,19 +4,17 @@ import numpy as np
 import onnxruntime as ort
 
 from src.clasher.model import InferenceModel
-
+from src.clasher.model_state import ONNXRPPOState
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 
 class RecurrentPPOONNXInferenceModel(InferenceModel):
-    def __init__(self, model_path, env, deterministic=True, player_id=0, use_cuda=True):
+    def __init__(self, model_path, deterministic=True, use_cuda=True):
         self.model_path = model_path
         
-        self.env = env
         self.deterministic = deterministic
-        self.player_id = player_id
 
         self.reset()
         self.load_model(model_path)
@@ -57,18 +55,7 @@ class RecurrentPPOONNXInferenceModel(InferenceModel):
         self._prev_time = 0.0
         self._elixir_overflow_accum = 0.0
 
-        # LSTM states (initialized to zeros, will be updated after first inference)
-        self.pi_h, self.pi_c = self._init_lstm((1, 1, 256))  # (n_layers, batch, hidden_size)
-        self.vf_h, self.vf_c = self._init_lstm((1, 1, 256))
-
-    def _init_lstm(self, shape):
-        # replace symbolic dims with 1
-        shape_fixed = tuple(1 if isinstance(x, str) else x for x in shape)
-        zero = np.zeros(shape_fixed, dtype=np.float32)
-        return zero, zero
-        # ------------------- INFERENCE -------------------
-
-    def predict(self, obs, deterministic=False):
+    def predict(self, obs, valid_action_mask=None, state=None):
         """
         Runs a single ONNX inference step with recurrent state update
         and optional invalid action masking.
@@ -79,30 +66,38 @@ class RecurrentPPOONNXInferenceModel(InferenceModel):
         """
         # --- ONNX forward pass ---
 
+        #make sure state is a valid state
+        if state is not None and not isinstance(state, ONNXRPPOState):
+            raise ValueError("State must be an instance of ONNXRPPOState")
+
+
+
         inputs = {
             "obs": obs.astype(np.float32),
-            "pi_h": self.pi_h,
-            "pi_c": self.pi_c,
-            "vf_h": self.vf_h,
-            "vf_c": self.vf_c,
         }
+        if state is not None:
+            inputs.update({
+                "pi_h": state.pi_h,
+                "pi_c": state.pi_c,
+                "vf_h": state.vf_h,
+                "vf_c": state.vf_c,
+            })
         
         outputs = self.session.run(None, inputs)
         actions_raw, new_pi_h, new_pi_c, new_vf_h, new_vf_c = outputs
 
         # --- update LSTM states ---
-        self.pi_h, self.pi_c = new_pi_h, new_pi_c
-        self.vf_h, self.vf_c = new_vf_h, new_vf_c
+        #build new state object
+        next_state = ONNXRPPOState(pi_h=new_pi_h, pi_c=new_pi_c, vf_h=new_vf_h, vf_c=new_vf_c)
 
         # --- extract logits or action scores ---
         logits = actions_raw[0]  # remove batch dim, shape = (n_actions,)
 
         # --- apply invalid action mask if provided ---
-        mask = self.env.get_valid_action_mask(self.player_id)  # shape (n_actions,)
-        logits = np.where(mask == 1, logits, -1e9)
+        logits = np.where(valid_action_mask == 1, logits, -1e9)
 
         # --- select action ---
-        if deterministic:
+        if self.deterministic:
             action = int(np.argmax(logits))
         else:
             # stochastic selection via softmax
@@ -110,7 +105,7 @@ class RecurrentPPOONNXInferenceModel(InferenceModel):
             probs = exp_logits / exp_logits.sum()
             action = int(np.random.choice(len(probs), p=probs))
 
-        return action
+        return action, next_state
 
 
     # ------------------- PERF -------------------
@@ -149,3 +144,7 @@ class RecurrentPPOONNXInferenceModel(InferenceModel):
 
     def postprocess_action(self, model_output, agent_id=None):
         return model_output
+    
+    def postprocess_reward(self, info):
+        return 0.0
+        pass

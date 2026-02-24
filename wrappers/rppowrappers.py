@@ -12,6 +12,7 @@ from src.clasher.gym_env import ClashRoyaleGymEnv, ClashRoyaleVectorEnv
 
 from wrappers.recurrentppo import RecurrentPPOInferenceModel
 from wrappers.randompolicy import RandomPolicyInferenceModel
+from src.clasher.data import CardDataLoader
 import gymnasium as gym
 import numpy as np
 # from ppo_wrapper import PPOObsWrapper
@@ -21,6 +22,20 @@ import time
 
 from collections import deque
 
+class CardEncoder:
+    def __init__(self, card_loader: CardDataLoader):
+        self.card_loader = card_loader
+        self.card_to_id = {card['name']: idx for idx, card in enumerate(self.card_loader.cards)}
+        self.id_to_card = {idx: card['name'] for idx,   card in enumerate(self.card_loader.cards)}
+
+    def encode_hand(self, hand: list[str]) -> np.ndarray:
+        # Encode hand as multi-hot vector
+        vec = np.zeros(len(self.card_loader.cards), dtype=np.float32)
+        for card_name in hand:
+            card_id = self.card_to_id.get(card_name)
+            if card_id is not None:
+                vec[card_id] = 1.0
+        return vec
 
 class PPOObsWrapper(gym.ObservationWrapper):
     """

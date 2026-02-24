@@ -6,6 +6,8 @@ from wrappers.replaymodel import ReplayInferenceModel
 from visualize_battle import BattleVisualizer
 import argparse
 
+from src.clasher.model_state import ReplayState
+
 # Initialize Pygame
 pygame.init()
 
@@ -33,20 +35,25 @@ ARENA_X = 50
 ARENA_Y = 50
 
 DECK = ["Cannon", "Fireball", "HogRider", "IceGolemite", "IceSpirits", "Musketeer", "Skeletons", "Log"]
-
-
 class ReplayVisualizer(BattleVisualizer):
     def __init__(self, replay_path):
         super().__init__()
-        self.env = ClashRoyaleGymEnv()
+        self.p1_model = ReplayInferenceModel(replay_path=replay_path, player_id=1)
+        self.env = ClashRoyaleGymEnv(opponent_policy=self.p1_model, opponent_state=ReplayState(), deck0=DECK, deck1=DECK)
+        self.env.reset()
         self.engine = self.env.engine
         self.battle = self.env.battle
         self.obs, self.info = self.env.reset()
-        self.p0_model = ReplayInferenceModel(env=self.env, replay_path=replay_path, player_id=0)
-        self.p1_model = ReplayInferenceModel(env=self.env, replay_path=replay_path, player_id=1)
-        self.env.set_opponent_policy(self.p1_model)
-        self.env.set_player_deck(0, DECK)
-        self.env.set_player_deck(1, DECK)
+        self.p0_model = ReplayInferenceModel(replay_path=replay_path, player_id=0)
+        #get the initial hands and set them in the environment
+        self.replay = self.p0_model.replay_data
+        self.p0_initial_hand = self.replay[0]['players'][0]['hand']
+        self.p1_initial_hand = self.replay[0]['players'][1]['hand']
+        self.env.set_player_deck(0, DECK, initial_hand=self.p0_initial_hand)
+        self.env.set_player_deck(1, DECK, initial_hand=self.p1_initial_hand)
+
+
+        self.state = ReplayState()
         
     def setup_test_battle(self):
         # overwriting to pass this
@@ -118,7 +125,7 @@ class ReplayVisualizer(BattleVisualizer):
             
             # Update battle
             if not self.paused and not self.battle.game_over:
-                action = self.p0_model.predict(self.obs)
+                action, self.state = self.p0_model.predict(self.obs, valid_action_mask=None, state=self.state)
                 self.obs, _,_,_, self.info = self.env.step(action=action)
                 self.battle = self.env.battle # Update battle reference after step
                     
@@ -166,7 +173,6 @@ class ReplayVisualizer(BattleVisualizer):
             
             pygame.display.flip()
             self.clock.tick(60)  # 60 FPS display
-            print(self.info)
         
         pygame.quit()
 
@@ -175,6 +181,5 @@ if __name__=="__main__":
     parser.add_argument("--replay_path", type=str, required=True, help="Path to the replay JSONL file.")
     args = parser.parse_args()
 
-    env = ClashRoyaleGymEnv()
     visualizer = ReplayVisualizer(args.replay_path)
     visualizer.run()

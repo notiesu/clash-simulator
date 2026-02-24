@@ -15,25 +15,26 @@ from scripts.train.ppo_wrapper import PPOObsWrapper
 
 # reuse the same observation wrapper used by PPO inference
 
-
 class RandomPolicyInferenceModel(InferenceModel):
-    def __init__(self, env, player_id):
-        self.env = env
-        self.player_id = player_id
-        self.no_op_pct = 0.5
+    def __init__(self, no_op_pct=0.5, seed=None):
+        self.no_op_pct = no_op_pct
+        if seed is not None:
+            self.rng = np.random.default_rng(seed)
+        else:
+            self.rng = np.random.default_rng() #own rng instance
+        
     
     def load_model(self, model_path):
         pass
 
-    def predict(self, obs):
-        valid_action_mask = self.env.get_valid_action_mask(self.player_id)
-        valid_actions = np.where(valid_action_mask)[0]
+    def predict(self, obs, valid_action_mask=None, state=None):
+        valid_actions = np.flatnonzero(valid_action_mask)
         if len(valid_actions) == 0:
-            return self.env.no_op_action  # Return no-op if no valid actions    
+            return 2304, None
         #pad more no-ops if needed to ensure randomness among valid actions
         if np.random.rand() < self.no_op_pct:
-            return self.env.no_op_action
-        return np.random.choice(valid_actions)
+            return 2304, None # No-op action
+        return self.rng.choice(valid_actions), None
 
     def preprocess_observation(self, observation):
         return observation  
