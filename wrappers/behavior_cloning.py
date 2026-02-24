@@ -9,6 +9,7 @@ import numpy as np
 import torch
 
 from src.clasher.model import InferenceModel
+from src.clasher.model_state import BCState
 
 # Prefer new location; fallback for older repo layouts
 try:
@@ -56,11 +57,11 @@ class BCArgs:
 
 class BCInferenceModel(InferenceModel):
     """
-    Updated BC wrapper:
-      - loads token2id in __init__ (so preprocess works)
-      - loads weights from bc_args.model_path OR auto-discovers (prefers weight_history)
-      - reactive gating: only decide when opponent successfully acts
-      - model outputs: gate, card, x, y
+    BC wrapper (Option 1):
+      - BCState is external + owns all history/gating/encode/decode
+      - predict(observation, state) reads state (no mutation)
+      - postprocess_reward(info, state) is the ONLY mutation point and returns state
+      - postprocess_action(model_output, state) delegates to state.decode_action (read-only)
     """
 
     def __init__(self, env=None, bc_args: Optional[BCArgs] = None, printLogs: bool = False):
@@ -76,16 +77,6 @@ class BCInferenceModel(InferenceModel):
 
         dev = self.bc_args.device
         self.device = torch.device(dev if (dev.startswith("cuda") and torch.cuda.is_available()) else "cpu")
-
-        # buffers
-        self._hist_cards = None
-        self._hist_players = None
-        self._hist_x = None
-        self._hist_y = None
-
-        # reactive trigger: only decide after opponent makes a successful move
-        self._should_decide = False  # allow opening move by default (change to False if you want strictly reactive)
-        self._last_deck_env_names = [None] * 8
 
         # 1) Load token2id now (so preprocess works even before weights load)
         t2i_path = getattr(self.bc_args, "token2id_path", None)
@@ -112,7 +103,7 @@ class BCInferenceModel(InferenceModel):
                 self._try_autoload_weights_from_vocab_folder()
 
     # ----------------------------
-    # helpers
+    # helpers (kept for compatibility)
     # ----------------------------
     def _env_card_to_model_token(self, env_card: str) -> str:
         return ENV_TO_MODEL.get(env_card, env_card)
@@ -126,16 +117,11 @@ class BCInferenceModel(InferenceModel):
             return 1
         return 0
 
-    def _ensure_hist_buffers(self):
-        if self._hist_cards is None:
-            from collections import deque
-            H = int(self.bc_args.history_len)
-            self._hist_cards = deque(maxlen=H)
-            self._hist_players = deque(maxlen=H)
-            self._hist_x = deque(maxlen=H)
-            self._hist_y = deque(maxlen=H)
-
     def _encode_cards_to_ids(self, cards) -> torch.Tensor:
+        """
+        Kept because load_model uses it / older code paths might call it,
+        but your new state-driven path should NOT need it.
+        """
         if self.token2id is None:
             raise ValueError("token2id not loaded (need token2id.json or embedded in checkpoint).")
 
@@ -216,7 +202,6 @@ class BCInferenceModel(InferenceModel):
             base / "weight_history" / "model_state_dict.pt",
             base / "weight_history" / "checkpoint.pt",
             base / "weight_history" / "model.pt",
-
             base / "model_state_dict_v1.pt",
             base / "model_state_dict.pt",
             base / "checkpoint.pt",
@@ -256,9 +241,12 @@ class BCInferenceModel(InferenceModel):
         self.env = env
         return env
 
-    def reset(self):
-        # allow opening move; if you want STRICT reactive, set to False here.
-        self._should_decide = True
+    def reset(self, state: Optional[BCState] = None):
+        """Reset env and (optionally) reset the external BCState."""
+        if state is not None:
+            state.reset()
+            # allow opening move; set False if you want strictly reactive
+            state.should_decide = True
         return self.env.reset()
 
     def load_model(self, model_path: Union[str, Path]):
@@ -306,210 +294,52 @@ class BCInferenceModel(InferenceModel):
 
         vocab_size = int(state[emb_key].shape[0]) if emb_key is not None else len(self.token2id)
 
-        # Pad token2id to cover ids if needed
-        if len(self.token2id) < vocab_size:
-            used_ids = set(self.token2id.values())
-            for tid in range(vocab_size):
-                if tid in used_ids:
-                    continue
-                name = f"<EXTRA_{tid}>"
-                while name in self.token2id:
-                    name += "_"
-                self.token2id[name] = tid
-                used_ids.add(tid)
-
-        m = BCTransformer(
-            vocab_size=vocab_size,
-            pad_id=int(self.pad_id),
-            n_actions=9,  # 8 deck slots + NOOP
-        ).to(self.device)
-
-        m.load_state_dict(state, strict=True)
-        m.eval()
-        self.model = m
+        # Build model
+        self.model = BCTransformer(vocab_size=vocab_size)
+        self.model.load_state_dict(state, strict=False)
+        self.model.to(self.device)
+        self.model.eval()
 
         if self.printLogs:
             print(f"[BCInferenceModel] Loaded weights: {model_path}")
             print(f"[BCInferenceModel] vocab_size={vocab_size} pad_id={self.pad_id} device={self.device}")
 
-    def update_history_from_info(self, info: dict):
-        self._ensure_hist_buffers()
-
-        if not isinstance(info, dict):
-            return
-
-        last = info.get("last_action", None)
-        if not isinstance(last, dict):
-            return
-
+    # --------------------------
+    # New state-driven BC API
+    # --------------------------
+    def update_history_from_info(self, info: dict, state: BCState) -> BCState:
+        """Compatibility shim: delegates to BCState.update_from_info (mutation + returns state)."""
         my_id = self._infer_player_id()
-        opp_id = 1 - my_id
+        return state.update_from_info(
+            info=info,
+            env_to_model=ENV_TO_MODEL,
+            pad_xy=(PAD_X, PAD_Y),
+            my_id=my_id,
+            extract_xy_fn=self._extract_xy_from_action,
+            printLogs=self.printLogs,
+        )
 
-        # Helper to read "player_0"/"player_1"
-        def _read_player(player_id: int) -> Tuple[bool, Optional[str], Tuple[int, int]]:
-            key = f"player_{player_id}"
-            action = last.get(key, {})
-            if not isinstance(action, dict):
-                return False, None, (PAD_X, PAD_Y)
-
-            success = bool(action.get("success", False))
-            card_name = action.get("card_name", None)
-            xy = self._extract_xy_from_action(action)
-            return success, card_name, xy
-
-        # append BOTH players' successful actions to history (training usually did this)
-        for pid in (0, 1):
-            success, card_name, (hx, hy) = _read_player(pid)
-            if success and card_name and card_name != "None":
-                model_card = ENV_TO_MODEL.get(card_name, None)
-                if model_card is None:
-                    if self.printLogs:
-                        print("UNKNOWN ENV CARD:", repr(card_name), "not in ENV_TO_MODEL")
-                    continue
-
-                self._hist_cards.append(model_card)
-                self._hist_players.append(pid)
-                self._hist_x.append(hx)
-                self._hist_y.append(hy)
-
-        # ✅ reactive trigger: only decide after opponent moves successfully
-        opp_success, opp_card, _ = _read_player(opp_id)
-        if opp_success and opp_card and opp_card != "None":
-            self._should_decide = True
-
-    def preprocess_observation(self, observation: Any) -> Dict[str, torch.Tensor]:
-        self._ensure_hist_buffers()
-
+    def preprocess_observation(self, observation: Any, state: BCState) -> Dict[str, torch.Tensor]:
+        """Build model inputs from env + BCState (read-only)."""
         if self.token2id is None:
             raise ValueError("token2id not loaded; set bc_args.token2id_path.")
+        if self.pad_id is None:
+            self.pad_id = int(self.token2id.get("<PAD>", 0))
 
-        u = getattr(self.env, "unwrapped", self.env)
-
-        # Try structured obs from env
-        obs_dict = None
-        for name in ("get_bc_obs", "get_token_obs", "get_token_observation", "get_obs_dict"):
-            if hasattr(u, name) and callable(getattr(u, name)):
-                try:
-                    out = getattr(u, name)()
-                    if isinstance(out, dict):
-                        obs_dict = out
-                        break
-                except Exception:
-                    pass
-
-        if obs_dict is None:
-            if not hasattr(u, "battle"):
-                raise TypeError(
-                    "Env obs is pixels, and env doesn't expose battle state or get_bc_obs(). "
-                    "Add env.get_bc_obs() or expose u.battle."
-                )
-
-            pid = self._infer_player_id()
-            opp = 1 - pid
-
-            # capture deck names for mapping deck_idx -> env card name later
-            player_obj = u.battle.players[pid]
-            deck_list = None
-            for attr in ("deck", "cards", "deck_cards", "full_deck"):
-                if hasattr(player_obj, attr):
-                    v = getattr(player_obj, attr)
-                    if isinstance(v, (list, tuple)) and len(v) > 0:
-                        deck_list = list(v)
-                        break
-            if deck_list is None and hasattr(player_obj, "hand"):
-                deck_list = list(player_obj.hand)
-            if deck_list is None:
-                deck_list = []
-            self._last_deck_env_names = [c for c in deck_list][:8]
-            if len(self._last_deck_env_names) < 8:
-                self._last_deck_env_names += [None] * (8 - len(self._last_deck_env_names))
-
-            def _get_8_cards(player_obj2):
-                for attr2 in ("deck", "cards", "deck_cards", "full_deck"):
-                    if hasattr(player_obj2, attr2):
-                        v2 = getattr(player_obj2, attr2)
-                        if isinstance(v2, (list, tuple)) and len(v2) > 0:
-                            return list(v2)
-                if hasattr(player_obj2, "hand"):
-                    return list(player_obj2.hand)
-                return []
-
-            p0_cards = _get_8_cards(u.battle.players[pid])
-            p1_cards = _get_8_cards(u.battle.players[opp])
-
-            obs_dict = {
-                "history_cards": list(self._hist_cards),
-                "history_players": list(self._hist_players),
-                "history_x": list(self._hist_x),
-                "history_y": list(self._hist_y),
-                "deck": p0_cards,
-                "opp_deck": p1_cards,
-            }
-
-        h_cards = obs_dict.get("history_cards", [])
-        h_players = obs_dict.get("history_players", [])
-        h_x = obs_dict.get("history_x", [])
-        h_y = obs_dict.get("history_y", [])
-        deck = obs_dict.get("deck")
-        opp_deck = obs_dict.get("opp_deck")
-
-        if deck is None or opp_deck is None:
-            raise KeyError(f"BC obs dict must include 'deck' and 'opp_deck'. Got keys={list(obs_dict.keys())}")
-
-        def to_long_1d(x) -> torch.Tensor:
-            if isinstance(x, torch.Tensor):
-                t = x
-            elif isinstance(x, np.ndarray):
-                t = torch.from_numpy(x)
-            else:
-                t = torch.tensor(x)
-            return t.view(-1).long()
-
-        history_cards = self._encode_cards_to_ids(h_cards if h_cards is not None else [])
-        deck_ids = self._encode_cards_to_ids(deck if deck is not None else [])
-        opp_deck_ids = self._encode_cards_to_ids(opp_deck if opp_deck is not None else [])
-
-        history_players = torch.zeros_like(history_cards) if (h_players is None or len(h_players) == 0) else to_long_1d(h_players)
-        history_x = torch.full((history_cards.numel(),), PAD_X, dtype=torch.long) if (h_x is None or len(h_x) == 0) else to_long_1d(h_x)
-        history_y = torch.full((history_cards.numel(),), PAD_Y, dtype=torch.long) if (h_y is None or len(h_y) == 0) else to_long_1d(h_y)
-
-        H = int(self.bc_args.history_len)
-
-        def _pad_left(t: torch.Tensor, pad_value: int) -> torch.Tensor:
-            if t.numel() > H:
-                return t[-H:]
-            if t.numel() < H:
-                pad_n = H - t.numel()
-                return torch.cat([torch.full((pad_n,), int(pad_value), dtype=torch.long), t], dim=0)
-            return t
-
-        history_cards = _pad_left(history_cards, int(self.pad_id))
-        history_players = _pad_left(history_players, 0)
-        history_x = _pad_left(history_x, PAD_X)
-        history_y = _pad_left(history_y, PAD_Y)
-
-        def _pad_to_len(t: torch.Tensor, L: int, pad_value: int) -> torch.Tensor:
-            t = t.view(-1).long()
-            if t.numel() > L:
-                return t[:L]
-            if t.numel() < L:
-                return torch.cat([t, torch.full((L - t.numel(),), int(pad_value), dtype=torch.long)], dim=0)
-            return t
-
-        deck_ids = _pad_to_len(deck_ids, 8, int(self.pad_id))
-        opp_deck_ids = _pad_to_len(opp_deck_ids, 8, int(self.pad_id))
-
-        return {
-            "history_cards": history_cards.unsqueeze(0).to(self.device),
-            "history_players": history_players.unsqueeze(0).to(self.device),
-            "history_x": history_x.unsqueeze(0).to(self.device),
-            "history_y": history_y.unsqueeze(0).to(self.device),
-            "deck": deck_ids.view(1, -1).to(self.device),
-            "opp_deck": opp_deck_ids.view(1, -1).to(self.device),
-        }
+        return state.encode_inputs(
+            env=self.env,
+            token2id=self.token2id,
+            pad_id=int(self.pad_id),
+            env_to_model=ENV_TO_MODEL,
+            history_len=int(self.bc_args.history_len),
+            device=self.device,
+            infer_player_id_fn=self._infer_player_id,
+            pad_xy=(PAD_X, PAD_Y),
+        )
 
     @torch.no_grad()
-    def predict(self, observation: Any) -> Tuple[int, int, int, int]:
+    def predict(self, observation: Any, state: BCState) -> Tuple[int, int, int, int]:
+        """Run BC policy forward pass. Reads BCState but does not mutate it."""
         # If inference.py forgot to load, try auto-discovery once more.
         if self.model is None:
             mp = getattr(self.bc_args, "model_path", None)
@@ -522,8 +352,13 @@ class BCInferenceModel(InferenceModel):
             raise ValueError("BC model is not loaded. Call load_model() first or set bc_args.model_path.")
 
         x = observation
-        if not (isinstance(x, dict) and "history_cards" in x and isinstance(x["history_cards"], torch.Tensor) and x["history_cards"].ndim == 2):
-            x = self.preprocess_observation(observation)
+        if not (
+            isinstance(x, dict)
+            and "history_cards" in x
+            and isinstance(x["history_cards"], torch.Tensor)
+            and x["history_cards"].ndim == 2
+        ):
+            x = self.preprocess_observation(observation, state)
 
         gate_logits, card_logits, x_logits, y_logits = self.model.forward_policy(
             history_cards=x["history_cards"],
@@ -544,63 +379,17 @@ class BCInferenceModel(InferenceModel):
 
         return gate, deck_idx, x_bin, y_bin
 
-    def postprocess_action(self, model_output: Any) -> int:
-        # ✅ REACTIVE TRIGGER: only act after opponent moved
-        if not self._should_decide:
-            return -1
+    def postprocess_action(self, model_output: Any, state: BCState) -> int:
+        """Decode model output into env action using BCState (read-only)."""
+        return state.decode_action(
+            model_output=model_output,
+            env=self.env,
+            infer_player_id_fn=self._infer_player_id,
+            x_bins=X_BINS,
+            y_bins=Y_BINS,
+        )
 
-        if not isinstance(model_output, (tuple, list)) or len(model_output) != 4:
-            return -1
-
-        gate, deck_idx, x_bin, y_bin = model_output
-        gate = int(gate)
-        deck_idx = int(deck_idx)
-        x_bin = int(x_bin)
-        y_bin = int(y_bin)
-
-        # consume trigger whether or not we actually play (prevents spamming)
-        self._should_decide = False
-
-        if gate == 0:
-            return -1
-        if deck_idx == 8:
-            return -1
-
-        u = getattr(self.env, "unwrapped", self.env)
-        actions_per_tile = int(getattr(u, "actions_per_tile", getattr(u, "tiles_x", 1) * getattr(u, "tiles_y", 1)))
-
-        pid = self._infer_player_id()
-        hand = list(u.battle.players[pid].hand) if hasattr(u, "battle") and hasattr(u.battle.players[pid], "hand") else []
-        if len(hand) == 0:
-            return -1
-
-        # deck_idx -> env card name (best effort)
-        env_card_name = None
-        if isinstance(self._last_deck_env_names, list) and 0 <= deck_idx < len(self._last_deck_env_names):
-            env_card_name = self._last_deck_env_names[deck_idx]
-
-        # env expects HAND SLOT index
-        if env_card_name is not None and env_card_name in hand:
-            card_idx = int(hand.index(env_card_name))
-        else:
-            # fallback: pick slot 0 if predicted card not in hand
-            card_idx = 0
-
-        # (x_bin,y_bin) -> env tile index
-        tiles_x = int(getattr(u, "tiles_x", X_BINS))
-        tiles_y = int(getattr(u, "tiles_y", Y_BINS))
-
-        ex = int(round(x_bin * (tiles_x - 1) / max(1, X_BINS - 1))) if tiles_x > 1 else 0
-        ey = int(round(y_bin * (tiles_y - 1) / max(1, Y_BINS - 1))) if tiles_y > 1 else 0
-        ex = max(0, min(tiles_x - 1, ex))
-        ey = max(0, min(tiles_y - 1, ey))
-
-        tile_index = int(ey * tiles_x + ex)
-        tile_index = max(0, min(actions_per_tile - 1, tile_index))
-
-        return int(card_idx * actions_per_tile + tile_index)
-
-    def postprocess_reward(self, info: dict):
-        self.update_history_from_info(info)
-        return info.get("reward", 0.0) if isinstance(info, dict) else 0.0
+    def postprocess_reward(self, info: dict, state: BCState) -> BCState:
+        """ONLY mutation point: update state from env info and return it."""
+        return self.update_history_from_info(info, state)
     

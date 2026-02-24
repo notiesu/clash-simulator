@@ -9,7 +9,7 @@ from wrappers.rppo_onnx import RecurrentPPOONNXInferenceModel
 from wrappers.behavior_cloning import BCArgs, BCInferenceModel
 from stable_baselines3 import PPO
 from src.clasher.gym_env import ClashRoyaleGymEnv
-from src.clasher.model_state import State, ONNXRPPOState
+from src.clasher.model_state import State, ONNXRPPOState, BCState
 import logging
 import argparse
 import numpy as np
@@ -36,6 +36,7 @@ if __name__ == "__main__":
     parser.add_argument("--printLogs", action="store_true", help="Enable logging of actions to a JSONL file.")
     parser.add_argument("--p0_vocab_json", type=str, default=None, help="(BC only) Path to token2id json")
     parser.add_argument("--p1_vocab_json", type=str, default=None, help="(BC only) Path to token2id json")
+    parser.add_argument("--no_op_pct", type=float, default=0.5, help="How reactive or unreactive the Random Policy Bot is")
     parser.add_argument("--history_len", type=int, default=20, help="(BC only) history length")
     parser.add_argument("--pad_id", type=int, default=0, help="(BC only) pad token id used during training")
     parser.add_argument("--device", type=str, default="cpu", help="cpu or cuda")
@@ -52,7 +53,7 @@ if __name__ == "__main__":
     elif args.p0_model_type == "RecurrentPPO":
         model_p0 = RecurrentPPOInferenceModel()
     elif args.p0_model_type == "RandomPolicy":
-        model_p0 = RandomPolicyInferenceModel(env, player_id=0)
+        model_p0 = RandomPolicyInferenceModel(args.no_op_pct)
     elif args.p0_model_type == "BC":
         bc_args = BCArgs(
             token2id_path=args.p0_vocab_json,  # <-- updated name
@@ -71,7 +72,7 @@ if __name__ == "__main__":
     elif args.p1_model_type == "RecurrentPPO":
         model_p1 = RecurrentPPOInferenceModel()
     elif args.p1_model_type == "RandomPolicy":
-        model_p1 = RandomPolicyInferenceModel(env, player_id=1)
+        model_p1 = RandomPolicyInferenceModel(args.no_op_pct)
     elif args.p1_model_type == "BC":
         bc_args = BCArgs(
             token2id_path=args.p1_vocab_json,  # <-- updated name
@@ -88,7 +89,11 @@ if __name__ == "__main__":
     """
     MAIN ENVIRONMENT SIM LOOP
     """
-    obs, info = env.reset()
+    state = None  # for PPO/Recurrent/etc
+    bc_state_p0 = BCState(history_len=args.history_len) if args.p0_model_type == "BC" else None
+    if bc_state_p0 is not None:
+        bc_state_p0.should_decide = False  # allow opening move
+
     done = False
     num_steps = 0
 
@@ -96,6 +101,8 @@ if __name__ == "__main__":
     env.set_opponent_policy(model_p1)
     env.set_player_deck(0, DECK)
     env.set_player_deck(1, DECK)
+
+    obs, info = env.reset()
 
     if args.printLogs:
         # Set up logging
@@ -111,22 +118,28 @@ if __name__ == "__main__":
 
 
     while not done:
-        # preprocess observations
-        obs_p0 = model_p0.preprocess_observation(obs)
-
-        #get actions
-        action_p0, state = model_p0.predict(obs_p0, valid_action_mask=env.get_valid_action_mask(0), state=state)
-
-        #post process actions
-        action_p0 = model_p0.postprocess_action(action_p0)
+        if args.p0_model_type == "BC":
+            # BC: state is external; predict reads it, postprocess_reward updates it
+            model_out = model_p0.predict(obs, bc_state_p0)
+            action_p0 = model_p0.postprocess_action(model_out, bc_state_p0)
+        else:
+            # PPO/Recurrent/etc (teammate original flow)
+            obs_p0 = model_p0.preprocess_observation(obs)
+            action_p0, state = model_p0.predict(
+                obs_p0,
+                valid_action_mask=env.get_valid_action_mask(0),
+                state=state
+            )
+            action_p0 = model_p0.postprocess_action(action_p0)
 
         obs, reward, done, truncated, info = env.step(action_p0)
 
-        #env handles p1 action internally
-
-        #post process reward 
-        #NOTE: For now only processes reward for p0 agent
-        reward = model_p0.postprocess_reward(info)
+        # Update reward / state
+        if args.p0_model_type == "BC":
+            bc_state_p0 = model_p0.postprocess_reward(info, bc_state_p0)
+            reward = info.get("reward", reward)
+        else:
+            reward = model_p0.postprocess_reward(info)
         
         #split out - really the same for each agent
         if args.printLogs:            # Log step information
