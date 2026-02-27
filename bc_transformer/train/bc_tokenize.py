@@ -306,7 +306,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--input", type=Path, required=True, help="replay_*.json file OR directory of replay json files")
     ap.add_argument("--output", type=Path, required=True, help="Output .jsonl path (recommended name: bc_*.jsonl)")
-    ap.add_argument("--history_len", type=int, default=20)
+    ap.add_argument("--history_len", type=int, default=8)
     ap.add_argument("--add_noop_after_opp", action="store_true", help="Emit NOOP rows after opponent actions")
     ap.add_argument("--noop_gap_ticks", type=int, default=120, help="If next team action is >= this many ticks away, emit NOOP after opp action")
     ap.add_argument("--max_noop_rows_per_replay", type=int, default=200)

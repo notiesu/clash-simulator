@@ -206,6 +206,78 @@ def pick_first_non_null_deck(decks: Any) -> List[str]:
 
 
 # -----------------------------
+# deck perspective normalization (force Hog 2.6 as "team")
+# -----------------------------
+
+# Canonical Hog 2.6 deck (normalized card ids)
+HOG26_DECK_SET = {
+    "cannon",
+    "fireball",
+    "hog-rider",
+    "ice-golem",
+    "ice-spirit",
+    "musketeer",
+    "skeletons",
+    "the-log",
+}
+
+def is_hog26_deck(deck: Any) -> bool:
+    """True if `deck` matches Hog 2.6 (order-insensitive)."""
+    if not isinstance(deck, list) or len(deck) < 8:
+        return False
+    norm = [normalize_card_id(x) for x in deck[:8] if x]
+    return len(norm) == 8 and set(norm) == HOG26_DECK_SET
+
+def flip_record_perspective(record: Dict[str, Any]) -> Dict[str, Any]:
+    """Flip TEAM <-> OPPONENT so Hog 2.6 is always the TEAM deck."""
+    meta = record.get("meta") or {}
+
+    # Swap high-level meta
+    meta["team_tags"], meta["opponent_tags"] = meta.get("opponent_tags"), meta.get("team_tags")
+    meta["team_deck"], meta["opponent_deck"] = meta.get("opponent_deck"), meta.get("team_deck")
+
+    # Update player_tag to match the new "team" if possible
+    team_tags = meta.get("team_tags") or []
+    if isinstance(team_tags, list) and team_tags:
+        meta["player_tag"] = team_tags[0]
+
+    meta["flipped"] = True
+    record["meta"] = meta
+
+    # Swap place marker ownership flags (t<->o). Play events remain blue/red.
+    for e in record.get("events") or []:
+        if e.get("type") != "place":
+            continue
+        em = e.get("meta") or {}
+        s = em.get("s")
+        if s == "t":
+            em["s"] = "o"
+        elif s == "o":
+            em["s"] = "t"
+        e["meta"] = em
+
+    return record
+
+def ensure_team_is_hog26(record: Dict[str, Any]) -> Dict[str, Any]:
+    """If Hog 2.6 is on the opponent, flip perspective so Hog 2.6 is always TEAM."""
+    meta = record.get("meta") or {}
+    team_deck = meta.get("team_deck") or []
+    opp_deck = meta.get("opponent_deck") or []
+
+    if is_hog26_deck(team_deck):
+        meta["flipped"] = False
+        record["meta"] = meta
+        return record
+
+    if is_hog26_deck(opp_deck):
+        return flip_record_perspective(record)
+
+    meta["flipped"] = False
+    record["meta"] = meta
+    return record
+
+
+# -----------------------------
 # parsing replays
 # -----------------------------
 def parse_replay_json_file(path: Path) -> Dict[str, Any]:
@@ -468,6 +540,7 @@ def parse_directory(input_dir: Path, output_dir: Path, history_len: int, tick_ms
             continue
 
         parsed = parse_replay_json_file(replay_path)
+        parsed = ensure_team_is_hog26(parsed)
 
         # 1) replay summary (single json object, .jsonl name kept for compatibility if you want)
         summary_path = output_dir / f"replay_{parsed['replay_id']}.jsonl"
@@ -500,7 +573,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--input_dir", required=True, help="Directory containing raw replay JSON files")
     ap.add_argument("--output_dir", required=True, help="Directory to save parsed BC-ready files")
-    ap.add_argument("--history_len", type=int, default=20, help="How many past actions to include in the model input")
+    ap.add_argument("--history_len", type=int, default=8, help="How many past actions to include in the model input")
     ap.add_argument("--tick_ms", type=int, default=250, help="Decision tick size in milliseconds (controls NOOP frequency)")
     ap.add_argument("--csv", action="store_true", help="Also emit events_<id>.csv for debugging")
     args = ap.parse_args()
