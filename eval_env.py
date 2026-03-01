@@ -64,7 +64,7 @@ class EvalVectorEnv(ClashRoyaleVectorEnv):
             # # Step all envs at once
             # print(f"Stepping envs with actions: {action_p0}")
             
-            obs, rewards, dones, _, infos = self.step(action_p0)
+            obs, rewards, dones, truncateds, infos = self.step(action_p0)
             active_envs = np.logical_and(active_envs, np.logical_not(dones))
             # action_p1 = infos['last_action']['player_1']['action']
             # print(f"Opponent actions: {action_p1}")
@@ -89,22 +89,19 @@ class EvalVectorEnv(ClashRoyaleVectorEnv):
                 active_envs = np.array([True] * self.num_envs)  # reset for next episode
 
             for i in range(self.num_envs):
-                if dones[i]:
+                if dones[i] or truncateds[i]:
                     self.battle_count += 1
+                    active_envs[i] = False
+                    print(active_envs)
                     print(f"Env {i} finished episode {episode_count}")
                     # make sure info access is correct
                     win = infos.get('win', None)
                     if (win is not None and isinstance(win, list) and len(win) > i):
-                        if win[i] == 1:
+                        if win[i] == 0:
                             self.win_count += 1
                             win_counts[i] += 1
                         print(f"Env {i} win: {win[i]}")
                     print(f"Current overall win rate: {(self.win_count/self.battle_count)*100:.2f}% ({self.win_count}/{self.battle_count})")
-                    
-
-                else:
-                    # fallback if info is not dict
-                    pass
 
         # print results
         print("Evaluation completed")

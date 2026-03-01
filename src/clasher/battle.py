@@ -814,8 +814,9 @@ class BattleState:
                 self.triple_elixir = True
             
             # First tower destroyed wins in overtime
-            player0_crowns = self.players[0].get_crown_count()
-            player1_crowns = self.players[1].get_crown_count()
+            #its inverse because player 0 destroying player 1's tower means player 0 wins, but player 1's crown count is what determines the winner in overtime
+            player0_crowns = self.players[1].get_crown_count()
+            player1_crowns = self.players[0].get_crown_count()
             
             if player0_crowns > player1_crowns:
                 self.game_over = True

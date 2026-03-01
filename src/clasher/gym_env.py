@@ -57,6 +57,7 @@ class ClashRoyaleGymEnv(gym.Env):
         self.tiles_x = self.battle.arena.width
         self.tiles_y = self.battle.arena.height
         self.actions_per_tile = self.tiles_x * self.tiles_y
+        self.last_info = {}
 
         # Deck configuration options (can be lists of card names or names/indexes referring to decks.json)
         self._decks_file = "decks.json"
@@ -91,7 +92,6 @@ class ClashRoyaleGymEnv(gym.Env):
             self.initial_state = opponent_state
             self.opponent_state = opponent_state
         
-        print(type(opponent_state))
         # Apply any initial decks requested by constructor
     
     def get_opponent_state(self):
@@ -202,7 +202,7 @@ class ClashRoyaleGymEnv(gym.Env):
         trans[..., 0] = owner_new
         
         return trans
-        
+
 
     def reset(self, *, seed: Optional[int] = None, options: Optional[Dict] = None) -> Tuple[Dict[str, np.ndarray], Dict]:
         super().reset(seed=seed)  # gym API requires calling super().reset() when overriding
@@ -216,7 +216,8 @@ class ClashRoyaleGymEnv(gym.Env):
         self._step_count = 0
         self._prev_score = self._compute_score()
 
-        obs = self._render_obs()
+
+        obs = self.render_obs()
         info: Dict[str, Any] = {
             "tick": self.battle.tick,
             "time": self.battle.time,
@@ -302,6 +303,7 @@ class ClashRoyaleGymEnv(gym.Env):
         info["players"] = players_meta
         info["elixir_waste"] = sum([getattr(p, 'elixir_wasted', 0.0) for p in self.battle.players])
 
+        self.last_info = info
         return obs, info
     
     def decode_and_deploy(self, player_id: int, action: Optional[int] = None):
@@ -342,9 +344,11 @@ class ClashRoyaleGymEnv(gym.Env):
 
         return card_idx, card_name, x_tile, y_tile, deploy_x, deploy_y, action_success
 
+
     
     def step(self, action: int, state=None):
-        
+        if (self._step_count >= self._max_steps):
+            return self.render_obs(), 0.0, True, True, self.last_info, state
         # Decode and deploy for both players
         action0 = action
 
@@ -353,7 +357,7 @@ class ClashRoyaleGymEnv(gym.Env):
         #opponents action is flipped on the y axis
         if self.opponent_policy is not None:
             # Use the opponent policy model to select an action
-            opponent_obs = self.transpose_observation(self._render_obs())
+            opponent_obs = self.transpose_observation(self.render_obs())
             processed_opp_obs = self.opponent_policy.preprocess_observation(opponent_obs)
 
             raw_action1, self.opponent_state = self.opponent_policy.predict(processed_opp_obs, valid_action_mask=self.get_valid_action_mask(1), state=self.opponent_state)
@@ -369,7 +373,7 @@ class ClashRoyaleGymEnv(gym.Env):
         self._step_count += 1
 
         # Compute reward: reward is always for player_0
-        observation = self._render_obs()
+        observation = self.render_obs()
         #NOTE: COMMENTED BECAUSE THIS IS HANDLED IN THE INFERENCE SCRIPT - THIS DESIGN MAY CHANGE
         # observations["player_1"] = self.transpose_obs(observations["player_0"])
         score = self._compute_score()
@@ -451,13 +455,14 @@ class ClashRoyaleGymEnv(gym.Env):
         info["elixir_waste"] = sum([getattr(p, 'elixir_wasted', 0.0) for p in self.battle.players])
 
         # Determine winner from battle state (0 or 1) or None if no clear winner
-        info["win"] = self.battle.winner
+        info["win"] = self.battle.winner if self.battle.winner is not None else -1
+        self.last_info = info
         return observation, reward, terminated, truncated, info
 
     def render(self, mode: str = "rgb_array"):
         #NOTE: DNU
         if mode == "rgb_array":
-            return self._render_obs()
+            return self.render_obs()
         return None
 
     def close(self):
@@ -482,7 +487,7 @@ class ClashRoyaleGymEnv(gym.Env):
         return tower_term + crown_term
 
 
-    def _render_obs(self) -> np.ndarray:
+    def render_obs(self) -> np.ndarray:
         #TODO - Observation ideas
         #Own hand, elixir, opponent hand, elixir 
     
