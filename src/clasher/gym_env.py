@@ -3,30 +3,51 @@
 This provides a minimal, working `ClashRoyaleGymEnv` implementation suitable
 for running the project's `helloworld.py` demo and for basic RL loops.
 """
+
+# TODO - Benchmark on tick times for latency
 import contextlib
 from typing import Tuple, Dict, Any, Optional
 
+import json
+import os
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
+from gymnasium.vector import AsyncVectorEnv
 from .engine import BattleEngine
 from .arena import TileGrid, Position
 from pettingzoo import ParallelEnv
 from .model import InferenceModel
+from collections import deque
+from .model_state import State
+from .card_encoder import CardEncoder
 
-MAX_TOTAL_TOWER_HP = 12086  # 4824 + 2 * 3631
+
+
+import random
+
+
+MAX_TOTAL_TOWER_HP = 12086  # 4824 + 2 * 363
 
 class ClashRoyaleGymEnv(gym.Env):
     """Simple Gymnasium environment wrapper around BattleEngine/BattleState.
 
     Action encoding (discrete 2304): card_idx (4) x x_tile (18) x y_tile (32)
-    Observation: dict with `'p1-view'` -> 128x128x3 
-    Channel 1 - 0 = p0, 1 = p1, 
+    Observation: dict with `'p1-view'` -> 128x128x3
+    Channel 1 - 0 = p0, 1 = p1,
     """
 
     metadata = {"render_modes": ["rgb_array"]}
 
-    def __init__(self, speed_factor: float = 1.0, data_file: str = "gamedata.json", max_steps: int = 9090, suppress_output: bool = True):
+    def __init__(self,
+                 speed_factor: float = 1.0,
+                 data_file: str = "gamedata.json",
+                 max_steps: int = 9090,
+                 suppress_output: bool = True,
+                 deck0: Optional[list] = None,
+                 deck1: Optional[list] = None,
+                 opponent_policy: Optional[InferenceModel] = None,
+                 opponent_state: Optional[State] = None,):
         super().__init__()
         self.speed_factor = speed_factor
         self.data_file = data_file
@@ -40,10 +61,40 @@ class ClashRoyaleGymEnv(gym.Env):
         self.tiles_x = self.battle.arena.width
         self.tiles_y = self.battle.arena.height
         self.actions_per_tile = self.tiles_x * self.tiles_y
-        self.action_space = spaces.Discrete(self.num_cards * self.actions_per_tile)
+        self.last_info = {}
 
-        # Observation: 128x128 RGB-like tensor
-        self.obs_shape = (128, 128, 3)
+        # Deck configuration options (can be lists of card names or names/indexes referring to decks.json)
+        self._decks_file = "decks.json"
+        self.card_encoder = CardEncoder(self.engine.card_loader)
+        self.deck0 = deck0
+        self.deck1 = deck1
+        if self.deck0:
+            self.set_player_deck(0, self.deck0)
+        if self.deck1:
+            self.set_player_deck(1, self.deck1)
+
+
+        self.no_op_action = self.num_cards * self.actions_per_tile
+        self.action_space = spaces.Discrete(self.num_cards * self.actions_per_tile + 1)
+
+        """"Observation shape
+        Board channels:
+            Channel 0: owner (0 for p0, 128 for p1)
+            Channel 1: unit type id (0 for empty, 1..254 for unit types
+            Channel 2: HP fraction (0-255)
+        Global features:
+            
+        
+        """
+        #TODO - ill put both players, but the 1 channel will be garbage since the seen masking is complicated
+        #thus the model will only use the first dimension of elixir, hands, cycles
+        self.obs_shape = spaces.Dict({
+            "board": spaces.Box(shape=(128,128,C), dtype=np.uint8),
+            "elixirs": spaces.Box(shape=(2,), dtype=np.float32),  # p0 and p1 elixir
+            "hands": spaces.Box(shape=(2,4), dtype=np.int32),  # p0 and p1 hand card indexes
+            "cycles": spaces.Box(shape=(2,4), dtype=np.int32),  # p0 and p1 observable cycle cards - 0 is next in cycle, 1 is after that, etc
+        })
+        
         self.observation_space = spaces.Box(low=0, high=255, shape=self.obs_shape, dtype=np.uint8)
 
         # Internal bookkeeping
@@ -54,13 +105,18 @@ class ClashRoyaleGymEnv(gym.Env):
         self._type_to_id: Dict[str, int] = {}
         self._next_type_id = 1
 
-        #PettingZoo agents
-        self.agents = ["player_0", "player_1"]
-        self.possible_agents = self.agents[:]
-
         # Set opponent policy - can embed within the environment step
         # Opponent policy: either None (no embedded opponent) or an InferenceModel instance
-        self.opponent_policy: Optional[InferenceModel] = None
+        if opponent_policy:
+            self.set_opponent_policy(opponent_policy)
+        if opponent_state:
+            self.initial_state = opponent_state
+            self.opponent_state = opponent_state
+        
+        # Apply any initial decks requested by constructor
+    
+    def get_opponent_state(self):
+        return self.opponent_state
 
     def set_opponent_policy(self, model: InferenceModel):
         """Set an opponent policy model to be used for player 1 actions."""
@@ -71,8 +127,80 @@ class ClashRoyaleGymEnv(gym.Env):
             return None
         np.random.seed(seed)
         return seed
+
+    def set_player_deck(self, player_id: int, deck: list, initial_hand: Optional[list] = None):
+        """Set the deck for a specific player and rebuild their hand/cycle.
+
+        player_id: 0 or 1
+        deck: list of card names (ordered)
+        initial_hand: optional list of 4 card names to use as the starting hand
+        """
+        if player_id < 0 or player_id >= len(self.battle.players):
+            raise IndexError("player_id out of range")
+        player = self.battle.players[player_id]
+        player.deck = list(deck)
+
+        # Set initial hand
+        if initial_hand is not None:
+            player.hand = list(initial_hand)
+        else:
+            player.hand = list(deck[:4])
+        # Rebuild cycle queue from remaining deck cards
+        remaining = [c for c in player.deck if c not in player.hand]
+        player.cycle_queue = deque(remaining)
+
+
+    def get_valid_action_mask(self, player_id: int) -> np.ndarray:
+        """Return a boolean mask over the discrete action space for the given player_id."""
+        if player_id < 0 or player_id >= len(self.battle.players):
+            raise IndexError("player_id out of range")
+        player = self.battle.players[player_id]
+        arena = self.battle.arena
+
+        mask = np.zeros(self.action_space.n, dtype=bool)
+        for card_idx, card_name in enumerate(player.hand):
+            card_stats = self.battle.card_loader.get_card(card_name)
+            if card_stats is None:
+                print(f"Warning: card '{card_name}' not found in card loader")
+            if not player.can_play_card(card_name, card_stats):
+                continue
+            for x in range(self.tiles_x):
+                for y in range(self.tiles_y):
+                    # y here is the world/tile y; for player 1 the action encoding is
+                    # canonicalized (y flipped) so we must compute the encoded tile y.
+                    pos = Position(float(x) + 0.5, float(y) + 0.5)
+                    if arena.can_deploy_at(pos, player_id, self.battle):
+                        encoded_y = y if player_id == 0 else (self.tiles_y - 1 - y)
+                        action_int = card_idx * self.actions_per_tile + encoded_y * self.tiles_x + x
+                        mask[int(action_int)] = True
+
+        # allow no-op always
+        mask[int(self.no_op_action)] = True
+        return mask
+
+    def _load_decks_file(self) -> list:
+        """Load decks from a JSON file path stored in `self._decks_file`.
+
+        Returns a list of deck dicts with keys like 'name' and 'cards'.
+        """
+        path = self._decks_file
+        if not path:
+            return []
+        if not os.path.isabs(path):
+            path = os.path.join(os.getcwd(), path)
+        try:
+            with open(path, 'r') as fh:
+                data = json.load(fh)
+            return data.get('decks', [])
+        except Exception:
+            return []
+
+    def set_decks(self, deck0: list, deck1: list, hand0: Optional[list] = None, hand1: Optional[list] = None):
+        """Convenience to set both players' decks and optional starting hands."""
+        self.set_player_deck(0, deck0, initial_hand=hand0)
+        self.set_player_deck(1, deck1, initial_hand=hand1)
     
-    def transpose_observation(observation):
+    def transpose_observation(self, observation):
         """
         Transpose observation to switch p0 <-> p1. 
         DO NOT OVERRIDE! PASS IN ENV OUTPUT OBSERVATION, NOT PROCESSED!
@@ -95,25 +223,41 @@ class ClashRoyaleGymEnv(gym.Env):
         trans[..., 0] = owner_new
         
         return trans
-        
+
 
     def reset(self, *, seed: Optional[int] = None, options: Optional[Dict] = None) -> Tuple[Dict[str, np.ndarray], Dict]:
+        super().reset(seed=seed)  # gym API requires calling super().reset() when overriding
         if seed is not None:
             self.seed(seed)
 
+        
         # Recreate engine & battle to ensure clean state
         self.engine = BattleEngine(self.data_file)
         self.battle = self.engine.create_battle()
         self._step_count = 0
         self._prev_score = self._compute_score()
 
-        obs = self._render_obs()
+
+        obs = self.render_obs()
         info: Dict[str, Any] = {
             "tick": self.battle.tick,
             "time": self.battle.time,
         }
+        self.opponent_state = self.initial_state
 
         # (players meta will be attached below alongside entities)
+        if self.deck0:
+            #determine initial hand from seed
+            self.initial_hand_0 = self.np_random.choice(self.deck0, size=4, replace=False).tolist()
+            self.set_player_deck(0, self.deck0, initial_hand=self.initial_hand_0)
+        if self.deck1:
+            self.initial_hand_1 = self.np_random.choice(self.deck1, size=4, replace=False).tolist()
+            self.set_player_deck(1, self.deck1, initial_hand=self.initial_hand_1)
+        # print(f"Player 0 deck set to: {self.battle.players[0].deck}")
+        # print(f"Player 1 deck set to: {self.battle.players[1].deck}")
+        # print(f"Initial hand player 0: {self.battle.players[0].hand}")
+        # print(f"Initial hand player 1: {self.battle.players[1].hand}")
+        # input("Press Enter to continue...")
 
         # entities meta (same format as step)
         entities_meta = []
@@ -180,13 +324,16 @@ class ClashRoyaleGymEnv(gym.Env):
         info["players"] = players_meta
         info["elixir_waste"] = sum([getattr(p, 'elixir_wasted', 0.0) for p in self.battle.players])
 
-        observations = {agent: obs for agent in self.agents}
-        infos = {agent: info for agent in self.agents}
-        return observations, infos
+        self.last_info = info
+        return obs, info
+    
     def decode_and_deploy(self, player_id: int, action: Optional[int] = None):
-        if action is None:
-            #make random action if none
-            action = self.action_space.sample()
+        # Special sentinel: -1 means "skip deploy" for this player (no play this tick)
+        if action == self.no_op_action or action is None or action == -1:
+            # Return a standardized no-op result:
+            #this is a successful no-op, not an invalid action, so success=True but other fields are -1 or None
+            action = self.no_op_action  # ensure consistent encoding for no-op
+            return -1, None, -1, -1, -1.0, -1.0, True
 
         card_idx = action // self.actions_per_tile
         tile_index = action % self.actions_per_tile
@@ -202,10 +349,12 @@ class ClashRoyaleGymEnv(gym.Env):
         x_tile = int(x_tile)
         y_tile = int(y_tile)
 
-        # safe card selection
+        # safe card selection: if the decoded card index is not present in the player's hand,
+        # treat the action as a no-op rather than remapping to card 0.
         hand = self.battle.players[player_id].hand
         if card_idx < 0 or card_idx >= len(hand):
-            card_idx = 0
+            # invalid action -> standardized no-op
+            return -1, None, -1, -1, -1.0, -1.0, False
         card_name = hand[card_idx]
 
         # deploy position (center of tile)
@@ -216,29 +365,36 @@ class ClashRoyaleGymEnv(gym.Env):
 
         return card_idx, card_name, x_tile, y_tile, deploy_x, deploy_y, action_success
 
+
     
-    def step(self, actions: Dict[str, int]):
-        
+    def step(self, action: int, state=None):
+        if (self._step_count >= self._max_steps):
+            return self.render_obs(), 0.0, False, True, self.last_info
         # Decode and deploy for both players
-        action0 = actions.get("player_0", None)
-        action1 = actions.get("player_1", None)
+        action0 = action
+
         p0_card_idx, card_name, p0_x_tile, p0_y_tile, deploy_x, deploy_y, p0_action_success = self.decode_and_deploy(0, action0)
         
         #opponents action is flipped on the y axis
-        if action1 is None:
-            if self.opponent_policy is not None:
-                # Use the opponent policy model to select an action
-                opponent_obs = self.transpose_observation(self._render_obs())
-                action1 = self.opponent_policy.predict(opponent_obs)
-            else:
-                action1 = self.action_space.sample()
+        if self.opponent_policy is not None:
+            # Use the opponent policy model to select an action
+            opponent_obs = self.transpose_observation(self.render_obs())
+            processed_opp_obs = self.opponent_policy.preprocess_observation(opponent_obs)
+
+            raw_action1, self.opponent_state = self.opponent_policy.predict(processed_opp_obs, valid_action_mask=self.get_valid_action_mask(1), state=self.opponent_state)
+            action1 = self.opponent_policy.postprocess_action(raw_action1)
+        else:
+            action1 = self.get_valid_action_mask(1)
+            action1 = self.np_random.choice(np.where(action1)[0])  # Sample random valid action for opponent if no policy provided
         p1_card_idx, p1_card_name, p1_x_tile, p1_y_tile, p1_deploy_x, p1_deploy_y, p1_action_success = self.decode_and_deploy(1, action1)
         # Advance simulation one tick
+        # if not p1_action_success:
+        #     print(f"Opponent action failed to deploy: {action1} -> card_idx {p1_card_idx}, tile ({p1_x_tile}, {p1_y_tile})")
         self.battle.step(self.speed_factor)
         self._step_count += 1
 
         # Compute reward: reward is always for player_0
-        observations = {agent: self._render_obs() for agent in self.agents}
+        observation = self.render_obs()
         #NOTE: COMMENTED BECAUSE THIS IS HANDLED IN THE INFERENCE SCRIPT - THIS DESIGN MAY CHANGE
         # observations["player_1"] = self.transpose_obs(observations["player_0"])
         score = self._compute_score()
@@ -253,6 +409,7 @@ class ClashRoyaleGymEnv(gym.Env):
             "time": self.battle.time,
             "last_action": {
             "player_0": {
+                "action": int(action0),
                 "card_idx": int(p0_card_idx),
                 "card_name": str(card_name),
                 "tile": (int(p0_x_tile), int(p0_y_tile)),
@@ -260,6 +417,7 @@ class ClashRoyaleGymEnv(gym.Env):
                 "success": bool(p0_action_success),
             },
             "player_1": {
+                "action": int(action1),
                 "card_idx": int(p1_card_idx) if len(self.battle.players[1].hand) > 0 else None,
                 "card_name": str(p1_card_name) if len(self.battle.players[1].hand) > 0 else None,
                 "tile": (int(p1_x_tile), int(p1_y_tile)) if len(self.battle.players[1].hand) > 0 else None,
@@ -317,16 +475,15 @@ class ClashRoyaleGymEnv(gym.Env):
         info["players"] = players_meta
         info["elixir_waste"] = sum([getattr(p, 'elixir_wasted', 0.0) for p in self.battle.players])
 
-        #reshape for pettingzoo
-        rewards = {"p0": float(reward), "p1": 0.0}
-        terminations = {agent: terminated for agent in self.agents}
-        truncations = {agent: truncated for agent in self.agents}
-        infos = {agent: info for agent in self.agents}
-        return observations, rewards, terminations, truncations, infos
+        # Determine winner from battle state (0 or 1) or None if no clear winner
+        info["win"] = self.battle.winner if self.battle.winner is not None else -1
+        self.last_info = info
+        return observation, reward, terminated, truncated, info
 
     def render(self, mode: str = "rgb_array"):
+        #NOTE: DNU
         if mode == "rgb_array":
-            return self._render_obs()
+            return self.render_obs()
         return None
 
     def close(self):
@@ -351,17 +508,19 @@ class ClashRoyaleGymEnv(gym.Env):
         return tower_term + crown_term
 
 
-    def _render_obs(self) -> np.ndarray:
-        """Render a 128x128x3 observation tensor with channels:
-
-        - channel 0: owner mask (255 for player0, 128 for player1, 0 background)
-        - channel 1: unit type id (0 background, 1..254 mapped per unit name)
-        - channel 2: HP fraction encoded 0..255
-
-        This keeps visualization concerns separate from the observation encoding.
+    def render_obs(self) -> np.ndarray:
+        #TODO - Observation ideas
+        #format - spaces.Dict()
+        #Own hand, elixir, opponent hand, elixir 
+    
         """
-        img_w, img_h = self.obs_shape[1], self.obs_shape[0]
-        img = np.zeros(self.obs_shape, dtype=np.uint8)
+        Shape: spaces.Dict({
+            "board": Box(shape=(128,128,C), dtype=np.uint8),
+            "global": Box(shape=(N,), dtype=np.float32)
+        })
+        """
+        board_w, board_h = self.obs_shape["board"][1], self.obs_shape["board"][0]
+        board = np.zeros(self.obs_shape["board"], dtype=np.uint8)
 
         arena = self.battle.arena
         for entity in self.battle.entities.values():
@@ -369,25 +528,25 @@ class ClashRoyaleGymEnv(gym.Env):
             ey = entity.position.y
 
             # Project into pixel coordinates
-            px = int((ex / arena.width) * img_w)
-            py = int((ey / arena.height) * img_h)
+            px = int((ex / arena.width) * board_w)
+            py = int((ey / arena.height) * board_h)
 
             # Clamp
-            px = max(0, min(img_w - 1, px))
-            py = max(0, min(img_h - 1, py))
+            px = max(0, min(board_w - 1, px))
+            py = max(0, min(board_h - 1, py))
 
             # Small square size in pixels
-            size_x = max(1, int(img_w / arena.width / 2))
-            size_y = max(1, int(img_h / arena.height / 2))
+            size_x = max(1, int(board_w / arena.width / 2))
+            size_y = max(1, int(board_h / arena.height / 2))
 
             x0 = max(0, px - size_x)
-            x1 = min(img_w - 1, px + size_x)
+            x1 = min(board_w - 1, px + size_x)
             y0 = max(0, py - size_y)
-            y1 = min(img_h - 1, py + size_y)
+            y1 = min(board_h - 1, py + size_y)
 
             # Owner channel: 255 for p0, 128 for p1
             owner_val = 255 if getattr(entity, 'player_id', 0) == 0 else 128
-            img[y0:y1, x0:x1, 0] = owner_val
+            board[y0:y1, x0:x1, 0] = owner_val
 
             # Unit type id mapping
             card_stats = getattr(entity, 'card_stats', None)
@@ -406,13 +565,77 @@ class ClashRoyaleGymEnv(gym.Env):
                 else:
                     type_id = 254
 
-            img[y0:y1, x0:x1, 1] = int(type_id)
+            board[y0:y1, x0:x1, 1] = int(type_id)
 
             # HP channel (normalized)
             try:
                 hp_frac = max(0.0, min(1.0, entity.hitpoints / max(1.0, getattr(entity, 'max_hitpoints', 1.0))))
             except Exception:
                 hp_frac = 1.0
-            img[y0:y1, x0:x1, 2] = int(hp_frac * 255)
+            board[y0:y1, x0:x1, 2] = int(hp_frac * 255)
 
-        return img
+        #initialize global featuures - p0/p1 elixir, p0 hand, p1 observable hand, p0 cycle, p1 observable cycle
+        p0 = self.battle.players[0]
+        p1 = self.battle.players[1]
+        elixirs = np.array([p0.elixir, p1.elixir], dtype=np.float32)
+        hands = np.zeros((2,4), dtype=np.int32)
+        cycles = np.zeros((2,4), dtype=np.int32)
+        for i in range(4):
+            hands[0][i] = self.card_encoder.encode(p0.hand[i]) if i < len(p0.hand) else -1
+            cycles[0][i] = self.card_encoder.encode(p0.cycle_queue[i]) if i < len(p0.cycle_queue) else -1
+            #TODO - FIX OBSERVABILITY - THIS IS NOT CORRECT FOR PLAYER 1, WHOSE HAND/CYCLE OBSERVABILITY IS LIMITED
+            hands[1][i] = -1
+            cycles[1][i] = -1
+        return spaces.Dict({
+            "board": board,
+            "elixirs": elixirs,
+            "hands": hands,
+            "cycles": cycles,
+        })
+
+        
+        
+
+class ClashRoyaleVectorEnv(AsyncVectorEnv):
+    """Vectorized wrapper around multiple `ClashRoyaleGymEnv` instances.
+
+    This wrapper instantiates `num_envs` independent `ClashRoyaleGymEnv`
+    environments and exposes a simple batched `reset` / `step` API compatible
+    with `gymnasium.vector.VectorEnv`.
+
+    Notes:
+    - Actions must be a 1-D array-like of ints with shape `(num_envs,)` where
+        each entry is the discrete action for the corresponding environment's
+        `player_0` agent. The opponent action is left as `None` (the wrapped
+        env will either sample or use an internal opponent policy).
+    - Observations are returned as an array with shape
+        `(num_envs, H, W, C)` where `H,W,C` match the wrapped env's `obs_shape`.
+    """
+
+    def __init__(self,
+                    num_envs: int,
+                    opponent_policies: Optional[list[InferenceModel]] = None,
+                    opponent_states: Optional[list] = None,
+                    **env_kwargs):
+        # Total number of environments
+        self.num_envs = num_envs
+        self.env_fns = []
+       
+        for i in range(self.num_envs):
+            def make_env(op_policy, op_state=None):
+                def _init():
+                    env = ClashRoyaleGymEnv(opponent_policy=op_policy, opponent_state=op_state, **env_kwargs)
+                    return env
+                return _init
+            opponent_policy = None
+            opponent_state = None
+            if opponent_policies:
+                opponent_policy = opponent_policies[i % len(opponent_policies)]
+            if opponent_states:
+                opponent_state = opponent_states[i % len(opponent_states)]
+
+            self.env_fns.append(make_env(opponent_policy, op_state=opponent_state))
+            
+
+        super().__init__(self.env_fns)
+
