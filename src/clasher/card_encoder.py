@@ -1,8 +1,8 @@
 from .data import CardDataLoader
 class CardEncoder:
     def __init__(self, card_data_loader: CardDataLoader):
-        self.card_to_index = {card: idx for idx, card in enumerate(card_data_loader.get_all_card_names())}
-        self.index_to_card = {idx: card for idx, card in enumerate(card_data_loader.get_all_card_names())}
+        self.card_to_index = {card: idx for idx, card in enumerate(card_data_loader.load_cards())}
+        self.index_to_card = {idx: card for idx, card in enumerate(card_data_loader.load_cards())}
     
     def encode(self, card_name: str):
         return self.card_to_index.get(card_name, -1) # return -1 for unknown cards

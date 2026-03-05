@@ -65,7 +65,7 @@ class ClashRoyaleGymEnv(gym.Env):
 
         # Deck configuration options (can be lists of card names or names/indexes referring to decks.json)
         self._decks_file = "decks.json"
-        self.card_encoder = CardEncoder(self.engine.card_loader)
+        self.card_encoder = CardEncoder(self.battle.card_loader)
         self.deck0 = deck0
         self.deck1 = deck1
         if self.deck0:
@@ -89,13 +89,13 @@ class ClashRoyaleGymEnv(gym.Env):
         #TODO - ill put both players, but the 1 channel will be garbage since the seen masking is complicated
         #thus the model will only use the first dimension of elixir, hands, cycles
         self.obs_shape = spaces.Dict({
-            "board": spaces.Box(shape=(128,128,C), dtype=np.uint8),
-            "elixirs": spaces.Box(shape=(2,), dtype=np.float32),  # p0 and p1 elixir
-            "hands": spaces.Box(shape=(2,4), dtype=np.int32),  # p0 and p1 hand card indexes
-            "cycles": spaces.Box(shape=(2,4), dtype=np.int32),  # p0 and p1 observable cycle cards - 0 is next in cycle, 1 is after that, etc
+            "board": spaces.Box(low=0, high=255, shape=(128,128,3), dtype=np.uint8),
+            "elixirs": spaces.Box(low=0.0, high=10.0, shape=(2,), dtype=np.float32),  # adjust max elixir
+            "hands": spaces.Box(low=0, high=127, shape=(2,4), dtype=np.int32),          # adjust max card index
+            "cycles": spaces.Box(low=0, high=127, shape=(2,4), dtype=np.int32),         # adjust max card index
         })
         
-        self.observation_space = spaces.Box(low=0, high=255, shape=self.obs_shape, dtype=np.uint8)
+        self.observation_space = self.obs_shape
 
         # Internal bookkeeping
         self._step_count = 0
@@ -211,8 +211,8 @@ class ClashRoyaleGymEnv(gym.Env):
         Switch entities ownership
         Switch x,y -> x, mirror y 
         """
-
-        arr = np.asarray(observation)
+        new_obs = observation.copy()
+        arr = np.asarray(observation['board'])
         # print(arr)
         trans = arr[::-1, :, :].copy()
         
@@ -221,8 +221,9 @@ class ClashRoyaleGymEnv(gym.Env):
         owner_new[owner == 255] = 128
         owner_new[owner == 128] = 255
         trans[..., 0] = owner_new
+        new_obs['board'] = trans
         
-        return trans
+        return new_obs
 
 
     def reset(self, *, seed: Optional[int] = None, options: Optional[Dict] = None) -> Tuple[Dict[str, np.ndarray], Dict]:
@@ -262,15 +263,16 @@ class ClashRoyaleGymEnv(gym.Env):
         # entities meta (same format as step)
         entities_meta = []
         arena = self.battle.arena
+        board_h, board_w, C = self.obs_shape["board"].shape
         for eid, ent in self.battle.entities.items():
             card_stats = getattr(ent, 'card_stats', None)
             type_name = getattr(card_stats, 'name', None) if card_stats is not None else ent.__class__.__name__
             type_id = self._type_to_id.get(type_name, 0)
 
-            px = int((ent.position.x / arena.width) * self.obs_shape[1])
-            py = int((ent.position.y / arena.height) * self.obs_shape[0])
-            px = max(0, min(self.obs_shape[1] - 1, px))
-            py = max(0, min(self.obs_shape[0] - 1, py))
+            px = int((ent.position.x / arena.width) *board_w)
+            py = int((ent.position.y / arena.height) * board_h)
+            px = max(0, min(board_w - 1, px))
+            py = max(0, min(board_h - 1, py))
 
             try:
                 hp_frac = max(0.0, min(1.0, ent.hitpoints / max(1.0, getattr(ent, 'max_hitpoints', 1.0))))
@@ -430,15 +432,16 @@ class ClashRoyaleGymEnv(gym.Env):
         # Provide structured entity metadata (stable for debugging / agents)
         entities_meta = []
         arena = self.battle.arena
+        board_h, board_w, C = self.obs_shape["board"].shape
         for eid, ent in self.battle.entities.items():
             card_stats = getattr(ent, 'card_stats', None)
             type_name = getattr(card_stats, 'name', None) if card_stats is not None else ent.__class__.__name__
             type_id = self._type_to_id.get(type_name, 0)
 
-            px = int((ent.position.x / arena.width) * self.obs_shape[1])
-            py = int((ent.position.y / arena.height) * self.obs_shape[0])
-            px = max(0, min(self.obs_shape[1] - 1, px))
-            py = max(0, min(self.obs_shape[0] - 1, py))
+            px = int((ent.position.x / arena.width) * board_w)
+            py = int((ent.position.y / arena.height) * board_h)
+            px = max(0, min(board_w - 1, px))
+            py = max(0, min(board_h - 1, py))
 
             try:
                 hp_frac = max(0.0, min(1.0, ent.hitpoints / max(1.0, getattr(ent, 'max_hitpoints', 1.0))))
@@ -516,11 +519,13 @@ class ClashRoyaleGymEnv(gym.Env):
         """
         Shape: spaces.Dict({
             "board": Box(shape=(128,128,C), dtype=np.uint8),
-            "global": Box(shape=(N,), dtype=np.float32)
+            "elixirs": Box(shape=(2,), dtype=np.float32),
+            "hands": Box(shape=(2,4), dtype=np.int32),
+            "cycles": Box(shape=(2,4), dtype=np.int32),
         })
         """
-        board_w, board_h = self.obs_shape["board"][1], self.obs_shape["board"][0]
-        board = np.zeros(self.obs_shape["board"], dtype=np.uint8)
+        board_w, board_h, C = self.obs_shape["board"].shape
+        board = np.zeros((board_w, board_h, C), dtype=np.uint8)
 
         arena = self.battle.arena
         for entity in self.battle.entities.values():
@@ -586,12 +591,13 @@ class ClashRoyaleGymEnv(gym.Env):
             #TODO - FIX OBSERVABILITY - THIS IS NOT CORRECT FOR PLAYER 1, WHOSE HAND/CYCLE OBSERVABILITY IS LIMITED
             hands[1][i] = -1
             cycles[1][i] = -1
-        return spaces.Dict({
+        
+        return {
             "board": board,
             "elixirs": elixirs,
             "hands": hands,
             "cycles": cycles,
-        })
+        }
 
         
         
