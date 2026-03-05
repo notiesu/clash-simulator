@@ -20,8 +20,12 @@ from pettingzoo import ParallelEnv
 from .model import InferenceModel
 from collections import deque
 from .model_state import State
+from .card_encoder import CardEncoder
+
+
 
 import random
+
 
 MAX_TOTAL_TOWER_HP = 12086  # 4824 + 2 * 363
 
@@ -61,6 +65,7 @@ class ClashRoyaleGymEnv(gym.Env):
 
         # Deck configuration options (can be lists of card names or names/indexes referring to decks.json)
         self._decks_file = "decks.json"
+        self.card_encoder = CardEncoder(self.engine.card_loader)
         self.deck0 = deck0
         self.deck1 = deck1
         if self.deck0:
@@ -72,8 +77,24 @@ class ClashRoyaleGymEnv(gym.Env):
         self.no_op_action = self.num_cards * self.actions_per_tile
         self.action_space = spaces.Discrete(self.num_cards * self.actions_per_tile + 1)
 
-        # Observation: 128x128 RGB-like tensor
-        self.obs_shape = (128, 128, 3)
+        """"Observation shape
+        Board channels:
+            Channel 0: owner (0 for p0, 128 for p1)
+            Channel 1: unit type id (0 for empty, 1..254 for unit types
+            Channel 2: HP fraction (0-255)
+        Global features:
+            
+        
+        """
+        #TODO - ill put both players, but the 1 channel will be garbage since the seen masking is complicated
+        #thus the model will only use the first dimension of elixir, hands, cycles
+        self.obs_shape = spaces.Dict({
+            "board": spaces.Box(shape=(128,128,C), dtype=np.uint8),
+            "elixirs": spaces.Box(shape=(2,), dtype=np.float32),  # p0 and p1 elixir
+            "hands": spaces.Box(shape=(2,4), dtype=np.int32),  # p0 and p1 hand card indexes
+            "cycles": spaces.Box(shape=(2,4), dtype=np.int32),  # p0 and p1 observable cycle cards - 0 is next in cycle, 1 is after that, etc
+        })
+        
         self.observation_space = spaces.Box(low=0, high=255, shape=self.obs_shape, dtype=np.uint8)
 
         # Internal bookkeeping
@@ -348,7 +369,7 @@ class ClashRoyaleGymEnv(gym.Env):
     
     def step(self, action: int, state=None):
         if (self._step_count >= self._max_steps):
-            return self.render_obs(), 0.0, True, True, self.last_info, state
+            return self.render_obs(), 0.0, False, True, self.last_info
         # Decode and deploy for both players
         action0 = action
 
@@ -489,19 +510,17 @@ class ClashRoyaleGymEnv(gym.Env):
 
     def render_obs(self) -> np.ndarray:
         #TODO - Observation ideas
+        #format - spaces.Dict()
         #Own hand, elixir, opponent hand, elixir 
     
-        """Render a 128x128x3 observation tensor with channels:
-
-        - channel 0: owner mask (255 for player0, 128 for player1, 0 background)
-        - channel 1: unit type id (0 background, 1..254 mapped per unit name)
-        - channel 2: HP fraction encoded 0..255
-
-
-        This keeps visualization concerns separate from the observation encoding.
         """
-        img_w, img_h = self.obs_shape[1], self.obs_shape[0]
-        img = np.zeros(self.obs_shape, dtype=np.uint8)
+        Shape: spaces.Dict({
+            "board": Box(shape=(128,128,C), dtype=np.uint8),
+            "global": Box(shape=(N,), dtype=np.float32)
+        })
+        """
+        board_w, board_h = self.obs_shape["board"][1], self.obs_shape["board"][0]
+        board = np.zeros(self.obs_shape["board"], dtype=np.uint8)
 
         arena = self.battle.arena
         for entity in self.battle.entities.values():
@@ -509,25 +528,25 @@ class ClashRoyaleGymEnv(gym.Env):
             ey = entity.position.y
 
             # Project into pixel coordinates
-            px = int((ex / arena.width) * img_w)
-            py = int((ey / arena.height) * img_h)
+            px = int((ex / arena.width) * board_w)
+            py = int((ey / arena.height) * board_h)
 
             # Clamp
-            px = max(0, min(img_w - 1, px))
-            py = max(0, min(img_h - 1, py))
+            px = max(0, min(board_w - 1, px))
+            py = max(0, min(board_h - 1, py))
 
             # Small square size in pixels
-            size_x = max(1, int(img_w / arena.width / 2))
-            size_y = max(1, int(img_h / arena.height / 2))
+            size_x = max(1, int(board_w / arena.width / 2))
+            size_y = max(1, int(board_h / arena.height / 2))
 
             x0 = max(0, px - size_x)
-            x1 = min(img_w - 1, px + size_x)
+            x1 = min(board_w - 1, px + size_x)
             y0 = max(0, py - size_y)
-            y1 = min(img_h - 1, py + size_y)
+            y1 = min(board_h - 1, py + size_y)
 
             # Owner channel: 255 for p0, 128 for p1
             owner_val = 255 if getattr(entity, 'player_id', 0) == 0 else 128
-            img[y0:y1, x0:x1, 0] = owner_val
+            board[y0:y1, x0:x1, 0] = owner_val
 
             # Unit type id mapping
             card_stats = getattr(entity, 'card_stats', None)
@@ -546,16 +565,36 @@ class ClashRoyaleGymEnv(gym.Env):
                 else:
                     type_id = 254
 
-            img[y0:y1, x0:x1, 1] = int(type_id)
+            board[y0:y1, x0:x1, 1] = int(type_id)
 
             # HP channel (normalized)
             try:
                 hp_frac = max(0.0, min(1.0, entity.hitpoints / max(1.0, getattr(entity, 'max_hitpoints', 1.0))))
             except Exception:
                 hp_frac = 1.0
-            img[y0:y1, x0:x1, 2] = int(hp_frac * 255)
+            board[y0:y1, x0:x1, 2] = int(hp_frac * 255)
 
-        return img
+        #initialize global featuures - p0/p1 elixir, p0 hand, p1 observable hand, p0 cycle, p1 observable cycle
+        p0 = self.battle.players[0]
+        p1 = self.battle.players[1]
+        elixirs = np.array([p0.elixir, p1.elixir], dtype=np.float32)
+        hands = np.zeros((2,4), dtype=np.int32)
+        cycles = np.zeros((2,4), dtype=np.int32)
+        for i in range(4):
+            hands[0][i] = self.card_encoder.encode(p0.hand[i]) if i < len(p0.hand) else -1
+            cycles[0][i] = self.card_encoder.encode(p0.cycle_queue[i]) if i < len(p0.cycle_queue) else -1
+            #TODO - FIX OBSERVABILITY - THIS IS NOT CORRECT FOR PLAYER 1, WHOSE HAND/CYCLE OBSERVABILITY IS LIMITED
+            hands[1][i] = -1
+            cycles[1][i] = -1
+        return spaces.Dict({
+            "board": board,
+            "elixirs": elixirs,
+            "hands": hands,
+            "cycles": cycles,
+        })
+
+        
+        
 
 class ClashRoyaleVectorEnv(AsyncVectorEnv):
     """Vectorized wrapper around multiple `ClashRoyaleGymEnv` instances.

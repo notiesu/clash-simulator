@@ -4,10 +4,10 @@ class CardEncoder:
         self.card_to_index = {card: idx for idx, card in enumerate(card_data_loader.get_all_card_names())}
         self.index_to_card = {idx: card for idx, card in enumerate(card_data_loader.get_all_card_names())}
     
-    def encode(self, card_name):
+    def encode(self, card_name: str):
         return self.card_to_index.get(card_name, -1) # return -1 for unknown cards
     
-    def decode(self, index):
+    def decode(self, index: int):
         return self.index_to_card.get(index, "Unknown")
     
     def one_hot_encode(self, cardlist: list[str]):
