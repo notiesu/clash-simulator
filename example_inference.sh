@@ -20,3 +20,10 @@ python -m inference --p0_model_path models/recurrentppo.onnx \
 --p0_model_type RecurrentPPOONNX \
 --p1_model_type RandomPolicy \
 --printLogs
+
+#RPPO vs. replay
+python -m inference --p0_model_type RecurrentPPO \
+--p0_model_path models/RPPO_ScriptedOpponent.pth \
+--p1_model_type Replay \
+--p1_model_path models/replay_opponent.jsonl \
+--printLogs

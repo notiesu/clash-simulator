@@ -6,9 +6,10 @@ from wrappers.ppo import PPOInferenceModel
 from wrappers.recurrentppo import RecurrentPPOInferenceModel
 from wrappers.randompolicy import RandomPolicyInferenceModel
 from wrappers.rppo_onnx import RecurrentPPOONNXInferenceModel
+from wrappers.replaymodel import ReplayInferenceModel
 from stable_baselines3 import PPO
 from src.clasher.gym_env import ClashRoyaleGymEnv
-from src.clasher.model_state import State, ONNXRPPOState
+from src.clasher.model_state import State, ONNXRPPOState, ReplayState
 import logging
 import argparse
 import numpy as np
@@ -37,9 +38,7 @@ if __name__ == "__main__":
 
     # Example usage
     env = ClashRoyaleGymEnv(deck0=DECK, deck1=DECK)
-    print(env.battle.players[0].deck)
-    print(env.battle.players[1].deck)
-    
+    state = None
     if args.p0_model_type == "PPO":
         model_p0 = PPOInferenceModel()
     elif args.p0_model_type == "RecurrentPPO":
@@ -49,9 +48,13 @@ if __name__ == "__main__":
     elif args.p0_model_type == "RecurrentPPOONNX":
         model_p0 = RecurrentPPOONNXInferenceModel(args.p0_model_path)
         state = ONNXRPPOState()
+    elif args.p0_model_type == "Replay":
+        model_p0 = ReplayInferenceModel(replay_path=args.p0_model_path)
+        state = ReplayState()
     model_p0.load_model(args.p0_model_path)
 
     #same for player 1
+    opponent_state = None
     if args.p1_model_type == "PPO":
         model_p1 = PPOInferenceModel()
     elif args.p1_model_type == "RecurrentPPO":
@@ -60,6 +63,10 @@ if __name__ == "__main__":
         model_p1 = RandomPolicyInferenceModel()
     elif args.p1_model_type == "RecurrentPPOONNX":
         model_p1 = RecurrentPPOONNXInferenceModel(args.p1_model_path)
+        opponent_state = ONNXRPPOState()
+    elif args.p1_model_type == "Replay":
+        model_p1 = ReplayInferenceModel(replay_path=args.p1_model_path)
+        opponent_state = ReplayState()
     model_p1.load_model(args.p1_model_path)
 
     logging.info("Both models loaded successfully.")
@@ -67,12 +74,11 @@ if __name__ == "__main__":
     """
     MAIN ENVIRONMENT SIM LOOP
     """
+    env = ClashRoyaleGymEnv(deck0=DECK, deck1=DECK, opponent_policy=model_p1, opponent_state=opponent_state)
+
     obs, info = env.reset()
     done = False
     num_steps = 0
-
-    #set opponent policy for env
-    env.set_opponent_policy(model_p1)
 
     if args.printLogs:
         # Set up logging

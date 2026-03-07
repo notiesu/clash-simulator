@@ -90,9 +90,9 @@ class ClashRoyaleGymEnv(gym.Env):
         #thus the model will only use the first dimension of elixir, hands, cycles
         self.obs_shape = spaces.Dict({
             "board": spaces.Box(low=0, high=255, shape=(128,128,3), dtype=np.uint8),
-            "elixirs": spaces.Box(low=0.0, high=10.0, shape=(2,), dtype=np.float32),  # adjust max elixir
-            "hands": spaces.Box(low=0, high=127, shape=(2,4), dtype=np.int32),          # adjust max card index
-            "cycles": spaces.Box(low=0, high=127, shape=(2,4), dtype=np.int32),         # adjust max card index
+            "elixirs": spaces.Box(low=0.0, high=10.0, shape=(2,), dtype=np.float32),  # p0, p1
+            "hands": spaces.Box(low=0, high=127, shape=(2,4), dtype=np.int32),          # p0, p1 -> idx 1, idx2, etc
+            "cycles": spaces.Box(low=0, high=127, shape=(2,4), dtype=np.int32),         # p0, p1 -> next in cycle, next after, etc.
         })
         
         self.observation_space = self.obs_shape
