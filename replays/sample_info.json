@@ -1,6 +1,6 @@
 {
-    "tick": 3324,
-    "time": 109.69200000000346,
+    "tick": 7491,
+    "time": 247.20299999995734,
     "last_action": {
         "player_0": {
             "action": 2304,
@@ -17,7 +17,7 @@
             "success": true
         },
         "player_1": {
-            "action": 2304,
+            "action": -1,
             "card_idx": -1,
             "card_name": "None",
             "tile": [
@@ -42,59 +42,11 @@
                 6.5
             ],
             "pixel": [
-                24,
-                26
+                6,
+                3
             ],
-            "hp": 2531.0,
-            "hp_frac": 0.6970531534012668
-        },
-        {
-            "id": 2,
-            "type_name": "Tower",
-            "type_id": 1,
-            "player_id": 0,
-            "position": [
-                14.5,
-                6.5
-            ],
-            "pixel": [
-                103,
-                26
-            ],
-            "hp": 3631.0,
-            "hp_frac": 1.0
-        },
-        {
-            "id": 3,
-            "type_name": "KingTower",
-            "type_id": 2,
-            "player_id": 0,
-            "position": [
-                9.0,
-                2.5
-            ],
-            "pixel": [
-                64,
-                10
-            ],
-            "hp": 4824.0,
-            "hp_frac": 1.0
-        },
-        {
-            "id": 4,
-            "type_name": "Tower",
-            "type_id": 1,
-            "player_id": 1,
-            "position": [
-                3.5,
-                25.5
-            ],
-            "pixel": [
-                24,
-                102
-            ],
-            "hp": 3520.0,
-            "hp_frac": 0.9694299091159461
+            "hp": 2971.0,
+            "hp_frac": 0.8182318920407601
         },
         {
             "id": 5,
@@ -106,11 +58,11 @@
                 25.5
             ],
             "pixel": [
-                103,
-                102
+                25,
+                14
             ],
-            "hp": 3631.0,
-            "hp_frac": 1.0
+            "hp": 371.0,
+            "hp_frac": 0.10217570917102727
         },
         {
             "id": 6,
@@ -122,125 +74,157 @@
                 29.5
             ],
             "pixel": [
-                64,
-                118
+                16,
+                16
             ],
-            "hp": 4824.0,
-            "hp_frac": 1.0
+            "hp": 330.0,
+            "hp_frac": 0.06840796019900497
         },
         {
-            "id": 141,
-            "type_name": "Musketeer",
-            "type_id": 9,
-            "player_id": 1,
-            "position": [
-                3.6583090696612603,
-                15.203661387140675
-            ],
-            "pixel": [
-                26,
-                60
-            ],
-            "hp": 620.0,
-            "hp_frac": 0.8481532147742818
-        },
-        {
-            "id": 152,
-            "type_name": "Cannon",
-            "type_id": 5,
-            "player_id": 1,
-            "position": [
-                6.5,
-                31.5
-            ],
-            "pixel": [
-                46,
-                126
-            ],
-            "hp": 509.85100000000193,
-            "hp_frac": 0.6106000000000024
-        },
-        {
-            "id": 153,
-            "type_name": "Cannon",
-            "type_id": 5,
-            "player_id": 0,
-            "position": [
-                4.5,
-                4.5
-            ],
-            "pixel": [
-                32,
-                18
-            ],
-            "hp": 520.8730000000019,
-            "hp_frac": 0.6238000000000022
-        },
-        {
-            "id": 159,
+            "id": 500,
             "type_name": "IceGolemite",
-            "type_id": 6,
-            "player_id": 0,
+            "type_id": 8,
+            "player_id": 1,
             "position": [
-                2.9805076897128835,
-                15.82978908040091
+                12.502644249838406,
+                15.84646582780991
             ],
             "pixel": [
-                21,
-                63
+                22,
+                8
             ],
-            "hp": 113.0,
-            "hp_frac": 0.09315746084089035
+            "hp": 440.0,
+            "hp_frac": 0.36273701566364386
         },
         {
-            "id": 165,
-            "type_name": "IceSpirits",
-            "type_id": 7,
+            "id": 545,
+            "type_name": "HogRider",
+            "type_id": 5,
+            "player_id": 0,
+            "position": [
+                8.68264343361562,
+                28.836436270287194
+            ],
+            "pixel": [
+                15,
+                16
+            ],
+            "hp": 767.0,
+            "hp_frac": 0.44618964514252474
+        },
+        {
+            "id": 578,
+            "type_name": "Cannon",
+            "type_id": 3,
             "player_id": 0,
             "position": [
                 2.5,
-                13.5
+                20.5
             ],
             "pixel": [
-                17,
-                54
+                4,
+                11
+            ],
+            "hp": 717.4320000000007,
+            "hp_frac": 0.8592000000000009
+        },
+        {
+            "id": 582,
+            "type_name": "IceSpirits",
+            "type_id": 4,
+            "player_id": 0,
+            "position": [
+                6.905230927124913,
+                26.59955051448064
+            ],
+            "pixel": [
+                12,
+                14
             ],
             "hp": 233.0,
+            "hp_frac": 1.0
+        },
+        {
+            "id": 589,
+            "type_name": "IceGolemite",
+            "type_id": 8,
+            "player_id": 1,
+            "position": [
+                11.95279675722131,
+                10.09290594714056
+            ],
+            "pixel": [
+                21,
+                5
+            ],
+            "hp": 1213.0,
+            "hp_frac": 1.0
+        },
+        {
+            "id": 596,
+            "type_name": "HogRider",
+            "type_id": 5,
+            "player_id": 1,
+            "position": [
+                11.093716614772717,
+                10.037379813181756
+            ],
+            "pixel": [
+                19,
+                5
+            ],
+            "hp": 1719.0,
+            "hp_frac": 1.0
+        },
+        {
+            "id": 597,
+            "type_name": "Tower",
+            "type_id": 1,
+            "player_id": 1,
+            "position": [
+                10.206091281581234,
+                27.9626911941791
+            ],
+            "pixel": [
+                18,
+                15
+            ],
+            "hp": 1.0,
             "hp_frac": 1.0
         }
     ],
     "players": [
         {
             "player_id": 0,
-            "elixir": 1.1757142857142928,
+            "elixir": 2.7207142857143083,
             "elixir_waste": 0.0,
             "hand": [
-                "HogRider",
-                "Fireball",
                 "Musketeer",
-                "Log"
+                "Fireball",
+                "HogRider",
+                "IceGolemite"
             ],
-            "crowns": 0,
-            "king_hp": 4824.0,
-            "left_hp": 2531.0,
-            "right_hp": 3631.0
+            "crowns": 1,
+            "king_hp": 0.0,
+            "left_hp": 2971.0,
+            "right_hp": 0.0
         },
         {
             "player_id": 1,
-            "elixir": 1.1757142857142147,
-            "elixir_waste": 0.0,
+            "elixir": 5.437857142857109,
+            "elixir_waste": 37.18392857142913,
             "hand": [
+                "Cannon",
                 "Skeletons",
-                "IceGolemite",
                 "Log",
-                "HogRider"
+                "Fireball"
             ],
-            "crowns": 0,
-            "king_hp": 4824.0,
-            "left_hp": 3520.0,
-            "right_hp": 3631.0
+            "crowns": 2,
+            "king_hp": 330.0,
+            "left_hp": 0.0,
+            "right_hp": 371.0
         }
     ],
-    "elixir_waste": 0.0,
-    "win": -1
+    "elixir_waste": 37.18392857142913,
+    "win": 1
 }

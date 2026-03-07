@@ -49,8 +49,8 @@ class ReplayVisualizer(BattleVisualizer):
         self.replay = self.p0_model.replay_data
         self.p0_initial_hand = self.replay[0]['players'][0]['hand']
         self.p1_initial_hand = self.replay[0]['players'][1]['hand']
-        self.env.set_player_deck(0, DECK, initial_hand=self.p0_initial_hand)
-        self.env.set_player_deck(1, DECK, initial_hand=self.p1_initial_hand)
+        self.env.set_player_deck(0, DECK)
+        self.env.set_player_deck(1, DECK)
 
 
         self.state = ReplayState()

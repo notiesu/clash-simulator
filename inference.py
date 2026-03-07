@@ -7,7 +7,6 @@ from wrappers.recurrentppo import RecurrentPPOInferenceModel
 from wrappers.randompolicy import RandomPolicyInferenceModel
 from wrappers.rppo_onnx import RecurrentPPOONNXInferenceModel
 from wrappers.replaymodel import ReplayInferenceModel
-from stable_baselines3 import PPO
 from src.clasher.gym_env import ClashRoyaleGymEnv
 from src.clasher.model_state import State, ONNXRPPOState, ReplayState
 import logging
@@ -49,6 +48,7 @@ if __name__ == "__main__":
         model_p0 = RecurrentPPOONNXInferenceModel(args.p0_model_path)
         state = ONNXRPPOState()
     elif args.p0_model_type == "Replay":
+        #TODO - this always does player 0 but fine for now
         model_p0 = ReplayInferenceModel(replay_path=args.p0_model_path)
         state = ReplayState()
     model_p0.load_model(args.p0_model_path)
@@ -78,6 +78,7 @@ if __name__ == "__main__":
 
     obs, info = env.reset()
     done = False
+    truncated = False
     num_steps = 0
 
     if args.printLogs:
@@ -93,7 +94,7 @@ if __name__ == "__main__":
         log_fh = open(log_path, "a")
 
 
-    while not done:
+    while not (done or truncated):
         # preprocess observations
         obs_p0 = model_p0.preprocess_observation(obs)
 
@@ -123,7 +124,7 @@ if __name__ == "__main__":
             elixir = player.get("elixir", "N/A")
             hand = player.get("hand", "N/A")
             crowns = player.get("crowns", "N/A")
-            logging.info(f"Player {player.get('player_id', 'N/A')} - Elixir: {elixir}, Hand: {hand}, Crowns: {crowns}")
+            logging.info(f"Player {player.get('player_id', 'N/A')} - Elixir: {elixir}, Hand: {hand}, Crowns Won: {crowns}")
 
         # Check for negative elixir
         for player in info.get("players", []):

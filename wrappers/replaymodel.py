@@ -30,10 +30,11 @@ class ReplayInferenceModel(InferenceModel):
 
     def predict(self, obs, valid_action_mask=None, state=None):
         if state.tick >= len(self.replay_data):
+            #reset back to zero in case the replay is shorter than the battle
+            state.tick = 0
             return 2304, state
-        
-        action = self.replay_data[state.tick]["last_action"][f"player_{self.player_id}"]["action"]
         state.tick += 1
+        action = self.replay_data[state.tick]["last_action"][f"player_{self.player_id}"]["action"]
         return int(action), state
 
     def preprocess_observation(self, observation):

@@ -804,7 +804,7 @@ class BattleState:
         for i, player in enumerate(self.players):
             if not player.is_alive():
                 self.game_over = True
-                self.winner = 1 - i
+                self.winner = 1 ^ i
                 return
         
         # Check overtime conditions (5 minutes)
@@ -818,13 +818,6 @@ class BattleState:
             player0_crowns = self.players[1].get_crown_count()
             player1_crowns = self.players[0].get_crown_count()
             
-            if player0_crowns > player1_crowns:
-                self.game_over = True
-                self.winner = 0
-            elif player1_crowns > player0_crowns:
-                self.game_over = True
-                self.winner = 1
-            
             # After 6 minutes, crown count determines winner
             if self.time >= 360.0:
                 if player0_crowns > player1_crowns:
@@ -832,7 +825,7 @@ class BattleState:
                 elif player1_crowns > player0_crowns:
                     self.winner = 1
                 else:
-                    self.winner = None  # Draw
+                    self.winner = -1  # Draw
                 self.game_over = True
     
     def _update_tower_hp(self) -> None:

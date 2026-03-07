@@ -66,7 +66,7 @@ class ManualController(BattleVisualizer):
         # Load opponent policy
         self.opponent = None
         if opponent_type == "random" and RandomPolicyInferenceModel is not None:
-            self.opponent = RandomPolicyInferenceModel(self.env, player_id=1)
+            self.opponent = RandomPolicyInferenceModel(no_op_pct=499/500)
             self.env.set_opponent_policy(self.opponent)
         elif opponent_type == "recurrent" and RecurrentPPOInferenceModel is not None and model_path:
             # RecurrentPPOInferenceModel expects a model path in its constructor

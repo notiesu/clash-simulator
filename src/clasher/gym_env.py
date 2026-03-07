@@ -33,8 +33,6 @@ class ClashRoyaleGymEnv(gym.Env):
     """Simple Gymnasium environment wrapper around BattleEngine/BattleState.
 
     Action encoding (discrete 2304): card_idx (4) x x_tile (18) x y_tile (32)
-    Observation: dict with `'p1-view'` -> 128x128x3
-    Channel 1 - 0 = p0, 1 = p1,
     """
 
     metadata = {"render_modes": ["rgb_array"]}
@@ -89,7 +87,7 @@ class ClashRoyaleGymEnv(gym.Env):
         #TODO - ill put both players, but the 1 channel will be garbage since the seen masking is complicated
         #thus the model will only use the first dimension of elixir, hands, cycles
         self.obs_shape = spaces.Dict({
-            "board": spaces.Box(low=0, high=255, shape=(128,128,3), dtype=np.uint8),
+            "board": spaces.Box(low=0, high=255, shape=(18,32,3), dtype=np.uint8),
             "elixirs": spaces.Box(low=0.0, high=10.0, shape=(2,), dtype=np.float32),  # p0, p1
             "hands": spaces.Box(low=0, high=127, shape=(2,4), dtype=np.int32),          # p0, p1 -> idx 1, idx2, etc
             "cycles": spaces.Box(low=0, high=127, shape=(2,4), dtype=np.int32),         # p0, p1 -> next in cycle, next after, etc.
@@ -109,9 +107,8 @@ class ClashRoyaleGymEnv(gym.Env):
         # Opponent policy: either None (no embedded opponent) or an InferenceModel instance
         if opponent_policy:
             self.set_opponent_policy(opponent_policy)
-        if opponent_state:
-            self.initial_state = opponent_state
-            self.opponent_state = opponent_state
+        self.initial_state = opponent_state
+        self.opponent_state = opponent_state
         
         # Apply any initial decks requested by constructor
     
@@ -249,11 +246,14 @@ class ClashRoyaleGymEnv(gym.Env):
         # (players meta will be attached below alongside entities)
         if self.deck0:
             #determine initial hand from seed
-            self.initial_hand_0 = self.np_random.choice(self.deck0, size=4, replace=False).tolist()
-            self.set_player_deck(0, self.deck0, initial_hand=self.initial_hand_0)
+            #TODO - no random choice for now. 
+            # self.initial_hand_0 = self.np_random.choice(self.deck0, size=4, replace=False).tolist()
+            # self.set_player_deck(0, self.deck0, initial_hand=self.initial_hand_0)
+            self.set_player_deck(0, self.deck0)
         if self.deck1:
-            self.initial_hand_1 = self.np_random.choice(self.deck1, size=4, replace=False).tolist()
-            self.set_player_deck(1, self.deck1, initial_hand=self.initial_hand_1)
+            # self.initial_hand_1 = self.np_random.choice(self.deck1, size=4, replace=False).tolist()
+            # self.set_player_deck(1, self.deck1, initial_hand=self.initial_hand_1)
+            self.set_player_deck(1, self.deck1)
         # print(f"Player 0 deck set to: {self.battle.players[0].deck}")
         # print(f"Player 1 deck set to: {self.battle.players[1].deck}")
         # print(f"Initial hand player 0: {self.battle.players[0].hand}")
@@ -300,7 +300,7 @@ class ClashRoyaleGymEnv(gym.Env):
                 "elixir": float(p.elixir),
                 "elixir_waste": float(getattr(p, 'elixir_wasted', 0.0)),
                 "hand": list(p.hand),
-                "crowns": int(p.get_crown_count()),
+                "crowns": int(self.battle.players[p.player_id ^ 1].get_crown_count()),
                 "king_hp": float(p.king_tower_hp),
                 "left_hp": float(p.left_tower_hp),
                 "right_hp": float(p.right_tower_hp),
@@ -308,23 +308,10 @@ class ClashRoyaleGymEnv(gym.Env):
         info["players"] = players_meta
         # aggregate elixir waste (both players)
         info["elixir_waste"] = sum([getattr(p, 'elixir_wasted', 0.0) for p in self.battle.players])
+        info["win"] = -1  # no winner at reset, -1 indicates ongoing game
 
         # players meta
         players_meta = []
-
-        for p in self.battle.players:
-            players_meta.append({
-                "player_id": p.player_id,
-                "elixir": float(p.elixir),
-                "elixir_waste": float(getattr(p, 'elixir_wasted', 0.0)),
-                "hand": list(p.hand),
-                "crowns": int(p.get_crown_count()),
-                "king_hp": float(p.king_tower_hp),
-                "left_hp": float(p.left_tower_hp),
-                "right_hp": float(p.right_tower_hp),
-            })
-        info["players"] = players_meta
-        info["elixir_waste"] = sum([getattr(p, 'elixir_wasted', 0.0) for p in self.battle.players])
 
         self.last_info = info
         return obs, info
@@ -469,7 +456,7 @@ class ClashRoyaleGymEnv(gym.Env):
                 "elixir": float(p.elixir),
                 "elixir_waste": float(getattr(p, 'elixir_wasted', 0.0)),
                 "hand": list(p.hand),
-                "crowns": int(p.get_crown_count()),
+                "crowns": int(self.battle.players[p.player_id ^ 1].get_crown_count()),
                 "king_hp": float(p.king_tower_hp),
                 "left_hp": float(p.left_tower_hp),
                 "right_hp": float(p.right_tower_hp),

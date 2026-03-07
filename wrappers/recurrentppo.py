@@ -117,7 +117,7 @@ class RewardWrapper(gym.Wrapper):
 
 class PPO(nn.Module):
     def __init__(self, 
-                 board_shape=(3, 128, 128),
+                 board_shape=(3, 18, 32),
                  num_elixir=2,
                  num_hand_slots=4,
                  num_card_ids=127,
@@ -138,14 +138,14 @@ class PPO(nn.Module):
         # CNN for board
         self.hand_embed = nn.Embedding(num_card_ids+1, 16, device=self.device)  # +1 for unknown, +1 for padding
         self.cycle_embed = nn.Embedding(num_card_ids+1, 8, device=self.device)  # +1 for unknown, +1 for padding
-        C, H, W = board_shape
+        self.C, self.W, self.H = board_shape
         self.cnn = nn.Sequential(
-            nn.Conv2d(C, 32, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(self.C, 32, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
             nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
             nn.Flatten(),
-            nn.Linear(64*H*W, cnn_output_dim),
+            nn.Linear(64*self.H*self.W, cnn_output_dim),
             nn.ReLU()
         )
 
@@ -174,60 +174,102 @@ class PPO(nn.Module):
             feature_dim = cnn_output_dim + mlp_hidden_dim
 
         # Actor & Critic heads
+        #TODO - I think this can be safely removed
         self.policy_net = nn.Linear(feature_dim, num_actions)
+
+
         self.play_head = nn.Linear(feature_dim, 2)          # Level 1: NO-OP vs Play
+        self.card_head = nn.Linear(feature_dim, num_hand_slots)  # Level 2: Card selection (only if Play)
+        self.placement_head = nn.Linear(feature_dim, self.W*self.H)  # Level 3: Placement (only if Play and card is placement)
+
         self.value_net = nn.Linear(feature_dim, 1)
 
         # Optimizer
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
-    def act(self, obs, hidden_states=None, deterministic=False, valid_action_mask=None):
-
+    def act(self, obs, hidden_states=None, deterministic=False, valid_action_mask=None, play_bias=0.0):
+        #valid action mask is passed as tensor by predict
+        if valid_action_mask is not None:
+             # slice off NO_OP if it’s at the end
+            mask_no_op = valid_action_mask[:, -1:]  # optional
+            mask_cards = valid_action_mask[:, :-1]  # [1, 2304]
+            # reshape to [1, num_hand_slots, W*H]
+            valid_action_mask = mask_cards.view(1, self.num_hand_slots, self.W * self.H)
+        
+        # Forward pass
         logits, value, hidden_states = self.forward(obs, hidden_states)
-
-        play_logits = logits["play"]
-        card_logits = logits["action"]
-
-        # ---- Play vs NOOP ----
+        
+        play_logits = logits["play"] + play_bias  # only apply bias in training
+        
+        # ---- Play vs NO-OP ----
         play_dist = Categorical(logits=play_logits)
-
         if deterministic:
             play_action = torch.argmax(play_logits, dim=-1)
         else:
             play_action = play_dist.sample()
-
         log_prob = play_dist.log_prob(play_action)
         entropy = play_dist.entropy()
 
+        
         # ---- Card selection ----
+        card_logits = logits["card"]
         if valid_action_mask is not None:
+            valid_card_mask = valid_action_mask[:, :, :self.num_hand_slots].any(dim=2)  # [1, num_hand_slots]
             inf_mask = torch.where(
-                valid_action_mask,
+                valid_card_mask,
                 torch.zeros_like(card_logits),
                 torch.full_like(card_logits, -1e8)
             )
             card_logits = card_logits + inf_mask
-
         card_dist = Categorical(logits=card_logits)
-
         if deterministic:
             card_action = torch.argmax(card_logits, dim=-1)
         else:
             card_action = card_dist.sample()
-
         card_log_prob = card_dist.log_prob(card_action)
         card_entropy = card_dist.entropy()
+        
+        # ---- Placement selection ----
+        placement_logits = logits["placement"]
 
+        if valid_action_mask is not None:
+            #use card action to index into mask
+            valid_placement_mask = valid_action_mask[torch.arange(valid_action_mask.size(0)), card_action]
+            inf_mask = torch.where(
+                valid_placement_mask,
+                torch.zeros_like(placement_logits),
+                torch.full_like(placement_logits, -1e8)
+            )
+            placement_logits = placement_logits + inf_mask
+        placement_dist = Categorical(logits=placement_logits)
+        if deterministic:
+            placement_action = torch.argmax(placement_logits, dim=-1)
+        else:
+            placement_action = placement_dist.sample()
+        placement_log_prob = placement_dist.log_prob(placement_action)
+        placement_entropy = placement_dist.entropy()
+        
+        # Only count card & placement if play_action == 1
         play_mask = (play_action == 1).float()
-
-        log_prob += card_log_prob * play_mask
-        entropy += card_entropy * play_mask
-
-        NO_OP = 2304
-        card_actions = torch.where(play_action == 0, NO_OP, card_action)
-
-        actions = (play_action, card_actions)
-
+        log_prob += play_mask * (card_log_prob + placement_log_prob)
+        entropy += play_mask * (card_entropy + placement_entropy)
+        
+        #TODO - I dont think is needed since they wont be part of the logprob update, but keeping just in case
+        # Set NO_OP for card/placement when not playing
+        # NO_OP_CARD = self.num_hand_slots  # or whatever you defined
+        # NO_OP_PLACEMENT = self.placement_head.out_features  # use a sentinel if needed
+        # card_actions = torch.where(play_action == 1, card_action, NO_OP_CARD)
+        # placement_actions = torch.where(play_action == 1, placement_action, NO_OP_PLACEMENT)
+        
+        actions = (play_action, card_action, placement_action)
+        
         return actions, log_prob, value, hidden_states
+    
+    def actions_to_ints(self, actions):
+        play_action, card_action, placement_action = actions  # all shape (B,)
+        NO_OP = 2304
+        ints = card_action * (self.W * self.H) + placement_action
+        ints = torch.where(play_action == 0, torch.tensor(NO_OP, device=self.device), ints)
+        return ints
     
     def obs_to_tensor(self, obs, device="cpu"):
         board = torch.tensor(obs["board"], dtype=torch.float32, device=device)
@@ -295,14 +337,16 @@ class PPO(nn.Module):
         # Actor & Critic
         action_logits = self.policy_net(features)
         play_logits = self.play_head(features)
+        card_logits = self.card_head(features)
+        placement_logits = self.placement_head(features)
         values = self.value_net(features).squeeze(-1)  # (B,)
 
-        return {"action": action_logits, "play": play_logits}, values, hidden_states
+        return {"action": action_logits, "play": play_logits, "card": card_logits, "placement": placement_logits}, values, hidden_states
 
     def export_onnx(self, filepath):
         device = next(self.parameters()).device
         dummy_obs = {
-            'board': torch.zeros(1, 3, 128, 128, dtype=torch.float32, device=device),
+            'board': torch.zeros(1, 3, self.W, self.H, dtype=torch.float32, device=device),
             'elixirs': torch.zeros(1, 2, dtype=torch.float32, device=device),
             'hands': torch.zeros(1, self.num_hand_slots, dtype=torch.long, device=device),
             'cycles': torch.zeros(1, self.num_cycle_slots, dtype=torch.long, device=device),
@@ -369,7 +413,7 @@ class RecurrentPPOInferenceModel(InferenceModel):
             self.use_autocast = False
 
         self.model = PPO(
-            board_shape=(3, 128, 128),
+            board_shape=(3, 18, 32),
             num_elixir=2,
             num_hand_slots=4,
             num_card_ids=128,
@@ -398,13 +442,16 @@ class RecurrentPPOInferenceModel(InferenceModel):
         self.model.load_state_dict(torch.load(model_path, map_location=self.device))
 
     def predict(self, obs, valid_action_mask=None, state=None):
+        #convert valid action mask to tensor
+        if valid_action_mask is not None:
+            valid_action_mask = torch.tensor(valid_action_mask, dtype=torch.bool, device=self.device).unsqueeze(0)  # add batch dim
         if self.eval_mode:
             # Use inference_mode to skip autograd overhead. If CUDA is available
             # and use_autocast is True, enable AMP for faster kernel execution.
             with torch.inference_mode():
                 if self.use_autocast and torch.cuda.is_available():
                     with torch.cuda.amp.autocast():
-                        action, _,_, next_state = self.model.act(
+                        actions, _,_, next_states = self.model.act(
                             obs,
                             state,
                             self.deterministic,
@@ -412,23 +459,24 @@ class RecurrentPPOInferenceModel(InferenceModel):
                         )
                 else:
                     #instead of predict, use forward
-                    action, _,_, next_state = self.model.act(
+                    actions, _,_, next_states = self.model.act(
                         obs,
                         state,
                         self.deterministic,
                         valid_action_mask=valid_action_mask
                     )
         else:
-            action, _,_, next_state = self.model.act(
+            actions, _,_, next_states = self.model.act(
                 obs,
                 state,
                 self.deterministic,
                 valid_action_mask=valid_action_mask
             )
-        # Ensure next_state is defined consistently when using eval_mod
-        # Validate predicted action against mask if provided; be robust to different mask types
-        # print(next_state)
-        return action[1]
+        # actions, next_states are tensors containing batch dim
+        #this function should return single int
+        action_ints = self.model.actions_to_ints(actions).cpu().numpy()  # convert to numpy and remove batch dim
+
+        return action_ints[0], next_states  # return single int and next_states without batch dim
 
     def perf_test(self, obs):
         N = 500
