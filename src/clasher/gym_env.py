@@ -6,6 +6,7 @@ for running the project's `helloworld.py` demo and for basic RL loops.
 
 # TODO - Benchmark on tick times for latency
 import contextlib
+import copy
 from typing import Tuple, Dict, Any, Optional
 
 import json
@@ -107,8 +108,8 @@ class ClashRoyaleGymEnv(gym.Env):
         # Opponent policy: either None (no embedded opponent) or an InferenceModel instance
         if opponent_policy:
             self.set_opponent_policy(opponent_policy)
-        self.initial_state = opponent_state
-        self.opponent_state = opponent_state
+        self.initial_state = copy.deepcopy(opponent_state)
+        self.opponent_state = copy.deepcopy(opponent_state)
         
         # Apply any initial decks requested by constructor
     
@@ -245,7 +246,7 @@ class ClashRoyaleGymEnv(gym.Env):
             "tick": self.battle.tick,
             "time": self.battle.time,
         }
-        self.opponent_state = self.initial_state
+        self.opponent_state = copy.deepcopy(self.initial_state)
 
         # (players meta will be attached below alongside entities)
         if self.deck0:
@@ -383,6 +384,8 @@ class ClashRoyaleGymEnv(gym.Env):
         # Advance simulation one tick
         # if not p1_action_success:
         #     print(f"Opponent action failed to deploy: {action1} -> card_idx {p1_card_idx}, tile ({p1_x_tile}, {p1_y_tile})")
+        # if action1 != self.no_op_action and action1 != -1:
+        #     print(f"Opponent action: {action1} -> card_idx {p1_card_idx}, tile ({p1_x_tile}, {p1_y_tile}), deploy ({p1_deploy_x}, {p1_deploy_y}), tick: {self.battle.tick}")
         self.battle.step(self.speed_factor)
         self._step_count += 1
 
