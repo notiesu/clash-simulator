@@ -33,8 +33,9 @@ class ReplayInferenceModel(InferenceModel):
             #reset back to zero in case the replay is shorter than the battle
             state.tick = 0
             return 2304, state
-        state.tick += 1
+        
         action = self.replay_data[state.tick]["last_action"][f"player_{self.player_id}"]["action"]
+        state.tick += 1
         return int(action), state
 
     def preprocess_observation(self, observation):

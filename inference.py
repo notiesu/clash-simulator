@@ -41,7 +41,7 @@ if __name__ == "__main__":
     if args.p0_model_type == "PPO":
         model_p0 = PPOInferenceModel()
     elif args.p0_model_type == "RecurrentPPO":
-        model_p0 = RecurrentPPOInferenceModel()
+        model_p0 = RecurrentPPOInferenceModel(model_path=args.p0_model_path)
     elif args.p0_model_type == "RandomPolicy":
         model_p0 = RandomPolicyInferenceModel()
     elif args.p0_model_type == "RecurrentPPOONNX":
@@ -58,7 +58,7 @@ if __name__ == "__main__":
     if args.p1_model_type == "PPO":
         model_p1 = PPOInferenceModel()
     elif args.p1_model_type == "RecurrentPPO":
-        model_p1 = RecurrentPPOInferenceModel()
+        model_p1 = RecurrentPPOInferenceModel(args.p1_model_path)
     elif args.p1_model_type == "RandomPolicy":
         model_p1 = RandomPolicyInferenceModel()
     elif args.p1_model_type == "RecurrentPPOONNX":

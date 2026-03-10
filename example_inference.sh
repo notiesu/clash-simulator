@@ -27,3 +27,9 @@ python -m inference --p0_model_type RecurrentPPO \
 --p1_model_type Replay \
 --p1_model_path models/replay_opponent.jsonl \
 --printLogs
+
+python -m inference --p0_model_type RecurrentPPO \
+--p0_model_path models/RPPO_ScriptedOpponent2.pth \
+--p1_model_type Replay \
+--p1_model_path models/aggressive_opponent.jsonl \
+--printLogs

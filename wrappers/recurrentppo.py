@@ -17,13 +17,20 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Categorical
-import gym
+import gymnasium as gym
 import numpy as np
 
 class RewardWrapper(gym.Wrapper):
     def __init__(self, env):
         super().__init__(env)
-
+        self._prev_tower_hps = None
+        self._prev_time = 0.0
+        self._prev_elixir_waste = 0.0
+        self._elixir_overflow_accum = 0.0
+        self._main_hit_seen = {}
+        self._H_main = 5000.0
+        self._H_aux = 1000.0
+    
     def step(self, action):
         obs, reward, terminated, truncated, info = self.env.step(action)
         
@@ -114,6 +121,13 @@ class RewardWrapper(gym.Wrapper):
 
         return obs, float(shaped_reward), terminated, truncated, info
     
+    def reset(self, **kwargs):
+        self._prev_tower_hps = None
+        self._prev_time = 0.0
+        self._prev_elixir_waste = 0.0
+        self._elixir_overflow_accum = 0.0
+        self._main_hit_seen = {}
+        return self.env.reset(**kwargs)
 
 class PPO(nn.Module):
     def __init__(self, 
@@ -139,13 +153,11 @@ class PPO(nn.Module):
         self.hand_embed = nn.Embedding(num_card_ids+1, 16, device=self.device)  # +1 for unknown, +1 for padding
         self.cycle_embed = nn.Embedding(num_card_ids+1, 8, device=self.device)  # +1 for unknown, +1 for padding
         self.C, self.W, self.H = board_shape
+        self.cnn_channels = 64
         self.cnn = nn.Sequential(
             nn.Conv2d(self.C, 32, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
-            nn.Flatten(),
-            nn.Linear(64*self.H*self.W, cnn_output_dim),
+            nn.Conv2d(32, self.cnn_channels, kernel_size=3, stride=1, padding=1),
             nn.ReLU()
         )
 
@@ -165,7 +177,10 @@ class PPO(nn.Module):
             nn.ReLU()
         )
 
+        self.combined_dim = self.cnn_channels + self.mlp[-2].out_features #retrieve shape of last linear
+
         # Optional GRU for recurrence
+        self.cnn_linear = nn.Linear(self.cnn_channels * self.W * self.H, cnn_output_dim, device=self.device)
         self.gru_hidden_dim = gru_hidden_dim
         if use_gru:
             self.gru = nn.GRU(cnn_output_dim + mlp_hidden_dim, gru_hidden_dim, batch_first=True)
@@ -180,8 +195,13 @@ class PPO(nn.Module):
 
         self.play_head = nn.Linear(feature_dim, 2)          # Level 1: NO-OP vs Play
         self.card_head = nn.Linear(feature_dim, num_hand_slots)  # Level 2: Card selection (only if Play)
-        self.placement_head = nn.Linear(feature_dim, self.W*self.H)  # Level 3: Placement (only if Play and card is placement)
-
+        self.placement_head = nn.Sequential(
+            nn.Conv2d(self.combined_dim, 64, 3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(64, 32, 3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(32, 1, 1)
+        )
         self.value_net = nn.Linear(feature_dim, 1)
 
         # Optimizer
@@ -324,9 +344,18 @@ class PPO(nn.Module):
         # print(f"elixirs: {elixirs.shape}, hand_emb: {hand_emb.shape}, cycle_emb: {cycle_emb.shape}")
         mlp_input = torch.cat([elixirs, hand_emb, cycle_emb], dim=1)
         mlp_feat = self.mlp(mlp_input)
+        #retain spatial structure for placement head by concatenating CNN and MLP features and reshaping
+        mlp_feat_expanded = mlp_feat.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, self.W, self.H)  
+        spatial_combined = torch.cat([cnn_feat, mlp_feat_expanded], dim=1)
+        placement_logits = self.placement_head(spatial_combined).flatten(1)
 
-        combined = torch.cat([cnn_feat, mlp_feat], dim=1).unsqueeze(1)  # (B, 1, dim) for GRU
+        #simple combine for linear actor heads
+        cnn_feat_flattened = cnn_feat.flatten(1)
+        cnn_proj = self.cnn_linear(cnn_feat_flattened)
+        combined = torch.cat([cnn_proj, mlp_feat], dim=1).unsqueeze(1)  # (B, 1, dim) for GRU
 
+        #spatial actor
+        
         # GRU
         if self.use_gru:
             gru_out, hidden_states = self.gru(combined, hidden_states)
@@ -338,7 +367,7 @@ class PPO(nn.Module):
         action_logits = self.policy_net(features)
         play_logits = self.play_head(features)
         card_logits = self.card_head(features)
-        placement_logits = self.placement_head(features)
+        
         values = self.value_net(features).squeeze(-1)  # (B,)
 
         return {"action": action_logits, "play": play_logits, "card": card_logits, "placement": placement_logits}, values, hidden_states
@@ -474,7 +503,7 @@ class RecurrentPPOInferenceModel(InferenceModel):
             )
         # actions, next_states are tensors containing batch dim
         #this function should return single int
-        action_ints = self.model.actions_to_ints(actions).cpu().numpy()  # convert to numpy and remove batch dim
+        action_ints = self.model.actions_to_ints(actions).numpy()  # convert to numpy and remove batch dim
 
         return action_ints[0], next_states  # return single int and next_states without batch dim
 

@@ -223,12 +223,16 @@ class ClashRoyaleGymEnv(gym.Env):
         return new_obs
 
 
+    def get_step_count(self):
+        return self._step_count
+    
+    def get_max_steps(self):
+        return self._max_steps
     def reset(self, *, seed: Optional[int] = None, options: Optional[Dict] = None) -> Tuple[Dict[str, np.ndarray], Dict]:
         super().reset(seed=seed)  # gym API requires calling super().reset() when overriding
         if seed is not None:
             self.seed(seed)
 
-        
         # Recreate engine & battle to ensure clean state
         self.engine = BattleEngine(self.data_file)
         self.battle = self.engine.create_battle()
@@ -358,7 +362,7 @@ class ClashRoyaleGymEnv(gym.Env):
     
     def step(self, action: int, state=None):
         if (self._step_count >= self._max_steps):
-            return self.render_obs(), 0.0, False, True, self.last_info
+            return self.render_obs(), 0.0, True, True, self.last_info
         # Decode and deploy for both players
         action0 = action
 
@@ -505,7 +509,7 @@ class ClashRoyaleGymEnv(gym.Env):
     
         """
         Shape: spaces.Dict({
-            "board": Box(shape=(128,128,C), dtype=np.uint8),
+            "board": Box(shape=(18,32,C), dtype=np.uint8),
             "elixirs": Box(shape=(2,), dtype=np.float32),
             "hands": Box(shape=(2,4), dtype=np.int32),
             "cycles": Box(shape=(2,4), dtype=np.int32),
