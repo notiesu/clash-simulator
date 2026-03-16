@@ -269,23 +269,38 @@ def load_replay_json(path: Path) -> Dict[str, Any]:
 
 def iter_replay_files(inp: Path) -> List[Path]:
     """
-    Recursively find replay json files.
+    Find input files.
 
     - If inp is a file: return [inp]
-    - If inp is a dir: recursively collect replay_*.json (preferred),
-      else fall back to any *.json.
+    - If inp is a dir: collect bc_*.jsonl and replay_*.json (and optionally any *.json fallback)
     """
     inp = Path(inp)
     if inp.is_file():
         return [inp]
 
     if inp.is_dir():
-        files = sorted(inp.rglob("replay_*.json"))
+        jsonls = sorted(inp.rglob("bc_*.jsonl"))
+        replays = sorted(inp.rglob("replay_*.json"))
+
+        # If a dir has only one type, great.
+        files = jsonls + replays
+
+        # Fallback: if neither exists, fall back to any json/jsonl (last resort)
         if not files:
-            files = sorted(inp.rglob("*.json"))
+            files = sorted(inp.rglob("*.jsonl")) + sorted(inp.rglob("*.json"))
+
         return files
 
     raise FileNotFoundError(f"Input not found: {inp}")
+
+
+def iter_jsonl_rows(path: Path):
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            yield json.loads(line)
 
 
 def write_jsonl(rows, out_path: Path) -> int:
@@ -306,7 +321,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--input", type=Path, required=True, help="replay_*.json file OR directory of replay json files")
     ap.add_argument("--output", type=Path, required=True, help="Output .jsonl path (recommended name: bc_*.jsonl)")
-    ap.add_argument("--history_len", type=int, default=8)
+    ap.add_argument("--history_len", type=int, default=20)
     ap.add_argument("--add_noop_after_opp", action="store_true", help="Emit NOOP rows after opponent actions")
     ap.add_argument("--noop_gap_ticks", type=int, default=120, help="If next team action is >= this many ticks away, emit NOOP after opp action")
     ap.add_argument("--max_noop_rows_per_replay", type=int, default=200)
@@ -318,8 +333,15 @@ def main():
         raise FileNotFoundError(f"No replay json files found at: {args.input}")
 
     def row_iter():
-        # Generator that yields rows across all replay files
         for rp in replay_files:
+            rp = Path(rp)
+            if rp.suffix.lower() == ".jsonl":
+                # bc_*.jsonl already tokenized; just stream rows through
+                for r in iter_jsonl_rows(rp):
+                    yield r
+                continue
+            
+            # replay_*.json (raw replay payload) -> tokenize
             rj = load_replay_json(rp)
             rows = build_bc_rows_from_replay(
                 rj,
@@ -328,7 +350,6 @@ def main():
                 noop_gap_ticks=int(args.noop_gap_ticks),
                 max_noop_rows_per_replay=int(args.max_noop_rows_per_replay),
             )
-            # rows is a list per replay; we stream them out immediately
             for r in rows:
                 yield r
 

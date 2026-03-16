@@ -245,8 +245,8 @@ class BCInferenceModel(InferenceModel):
         """Reset env and (optionally) reset the external BCState."""
         if state is not None:
             state.reset()
-            # allow opening move; set False if you want strictly reactive
-            state.should_decide = True
+            # STRICTLY reactive: do NOT allow an opening move
+            state.should_decide = False
         return self.env.reset()
 
     def load_model(self, model_path: Union[str, Path]):
@@ -308,16 +308,56 @@ class BCInferenceModel(InferenceModel):
     # New state-driven BC API
     # --------------------------
     def update_history_from_info(self, info: dict, state: BCState) -> BCState:
-        """Compatibility shim: delegates to BCState.update_from_info (mutation + returns state)."""
-        my_id = self._infer_player_id()
-        return state.update_from_info(
+        """
+        Compatibility shim: delegates to BCState.update_from_info (mutation + returns state).
+    
+        IMPORTANT:
+          - BCState.update_from_info sets state.should_decide.
+          - Do NOT override should_decide here.
+        """
+        if state is None:
+            return state
+        if not isinstance(info, dict):
+            return state
+    
+        my_id = int(self._infer_player_id())
+    
+        # Prefer instance-owned mappings/pads if they exist; fall back to module constants.
+        env_to_model = getattr(self, "env_to_model", None)
+        if env_to_model is None:
+            env_to_model = globals().get("ENV_TO_MODEL", {})
+    
+        pad_x = getattr(self, "pad_x", None)
+        pad_y = getattr(self, "pad_y", None)
+        if pad_x is None or pad_y is None:
+            pad_x = globals().get("PAD_X", -1)
+            pad_y = globals().get("PAD_Y", -1)
+    
+        # 1) Update history + should_decide inside BCState (source of truth)
+        state = state.update_from_info(
             info=info,
-            env_to_model=ENV_TO_MODEL,
-            pad_xy=(PAD_X, PAD_Y),
+            env_to_model=env_to_model,
+            pad_xy=(int(pad_x), int(pad_y)),
             my_id=my_id,
             extract_xy_fn=self._extract_xy_from_action,
             printLogs=self.printLogs,
         )
+    
+        # 2) Optional debug print
+        if self.printLogs:
+            opp_id = 1 - my_id
+            la = info.get("last_action", {})
+            opp = la.get(f"player_{opp_id}", {}) if isinstance(la, dict) else {}
+            opponent_played = (
+                isinstance(opp, dict)
+                and bool(opp.get("success", False))
+                and opp.get("card_name") not in (None, "None", "")
+            )
+            print(
+                f"[BC gating] my_id={my_id} opponent_played={opponent_played} -> should_decide={state.should_decide}"
+            )
+    
+        return state
 
     def preprocess_observation(self, observation: Any, state: BCState) -> Dict[str, torch.Tensor]:
         """Build model inputs from env + BCState (read-only)."""
@@ -337,10 +377,52 @@ class BCInferenceModel(InferenceModel):
             pad_xy=(PAD_X, PAD_Y),
         )
 
+    def _mask_to_current_hand(
+    self,
+    card_logits: torch.Tensor,
+    state: BCState,
+    *,
+    noop_index: int = 8,
+) -> tuple[torch.Tensor, list[bool]]:
+        """
+        Mask deck-slot logits (0..7) so we only select cards that are currently in-hand.
+        Keep NOOP index (8) always allowed.
+
+        Returns:
+          masked_logits: same shape as card_logits
+          allowed: python list[bool] length 9 (0..8)
+        """
+        u = getattr(self.env, "unwrapped", self.env)
+        pid = int(self._infer_player_id())
+
+        hand = []
+        try:
+            player = u.battle.players[pid]
+            hand = list(getattr(player, "hand", []))
+        except Exception:
+            hand = []
+
+        # deck_env_names MUST match how BCState.encode_inputs forms the 8-card deck view
+        deck_env_names = state._get_player_card_list(self.env, pid)[:8]
+        if len(deck_env_names) < 8:
+            deck_env_names += [None] * (8 - len(deck_env_names))
+
+        allowed = [False] * 9
+        for i in range(8):
+            cn = deck_env_names[i]
+            allowed[i] = (cn is not None) and (cn in hand)
+
+        allowed[noop_index] = True  # always allow "no play"
+
+        masked = card_logits.clone()
+        # card_logits is shape [B, 9] (or [1,9]) in your setup
+        neg_inf = torch.finfo(masked.dtype).min
+        mask_tensor = torch.tensor(allowed, device=masked.device, dtype=torch.bool).view(1, -1)
+        masked = torch.where(mask_tensor, masked, torch.full_like(masked, neg_inf))
+        return masked, allowed
+
     @torch.no_grad()
     def predict(self, observation: Any, state: BCState) -> Tuple[int, int, int, int]:
-        """Run BC policy forward pass. Reads BCState but does not mutate it."""
-        # If inference.py forgot to load, try auto-discovery once more.
         if self.model is None:
             mp = getattr(self.bc_args, "model_path", None)
             if mp:
@@ -369,13 +451,21 @@ class BCInferenceModel(InferenceModel):
             history_y=x["history_y"],
         )
 
-        gate = int(torch.argmax(gate_logits, dim=-1).item())      # 0=WAIT, 1=PLAY
-        deck_idx = int(torch.argmax(card_logits, dim=-1).item())  # 0..7 or 8=NOOP
-        x_bin = int(torch.argmax(x_logits, dim=-1).item())        # 0..17
-        y_bin = int(torch.argmax(y_logits, dim=-1).item())        # 0..31
+        gate = int(torch.argmax(gate_logits, dim=-1).item())  # 0=WAIT, 1=PLAY
+
+        # NEW: mask deck choices to only current hand
+        card_logits_masked, allowed = self._mask_to_current_hand(card_logits, state, noop_index=8)
+
+        deck_idx_raw = int(torch.argmax(card_logits, dim=-1).item())          # 0..7 or 8=NOOP
+        deck_idx = int(torch.argmax(card_logits_masked, dim=-1).item())       # 0..7 or 8=NOOP (masked)
+        x_bin = int(torch.argmax(x_logits, dim=-1).item())                    # 0..17
+        y_bin = int(torch.argmax(y_logits, dim=-1).item())                    # 0..31
 
         if self.printLogs:
-            print("[BC] gate:", gate, "| deck_idx:", deck_idx, "| x_bin:", x_bin, "| y_bin:", y_bin)
+            print(
+                f"[BC] gate: {gate} | deck_idx(raw): {deck_idx_raw} | deck_idx(masked): {deck_idx} "
+                f"| x_bin: {x_bin} | y_bin: {y_bin} | allowed={allowed}"
+            )
 
         return gate, deck_idx, x_bin, y_bin
 

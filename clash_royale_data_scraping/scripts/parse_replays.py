@@ -415,32 +415,13 @@ def infer_ms_per_tick(record: dict, plays: list[dict]) -> float:
 # -----------------------------
 # BC sample building (includes NOOP)
 # -----------------------------
-def build_bc_samples(record: dict, history_len: int = 20, tick_ms: int = 500) -> list[dict]:
-    """
-    Build behavior cloning samples at a fixed decision interval in MILLISECONDS.
-
-    We convert milliseconds -> replay tick units using the replay's own duration.
-    This avoids guessing whether e["t"] is ms or ticks.
-
-    Labeling rule (per window):
-      For each window [tick, tick + tick_dt_ticks):
-        - If TEAM plays a card in that window, label = first TEAM card they played
-        - Else label = "NOOP"
-
-    History:
-      - last `history_len` plays from both players BEFORE the window
-      - each entry: {"p": "me"/"opp", "card": <card_id>, "t": <tick>}
-    """
+def build_bc_samples(record: Dict[str, Any], history_len: int = 8, tick_ms: int = 250) -> List[Dict[str, Any]]:
     events = record.get("events") or []
+    meta = record.get("meta") or {}
 
-    team_deck = ((record.get("meta") or {}).get("team_deck")) or []
-    opp_deck  = ((record.get("meta") or {}).get("opponent_deck")) or []
-
-    # Infer which color corresponds to "team" (the player we scraped)
-    place_events = [e for e in events if e.get("type") == "place"]
-    inferred_team_side = infer_team_side_from_place_events(place_events)
-    team_side = inferred_team_side or "blue"
-    opp_side = "red" if team_side == "blue" else "blue"
+    team_side = record.get("team_side")
+    team_deck = record.get("team_deck") or []
+    opp_deck = record.get("opp_deck") or []
 
     # Only use play events for actions
     plays = [e for e in events if e.get("type") == "play" and e.get("side") in ("blue", "red")]
@@ -469,7 +450,6 @@ def build_bc_samples(record: dict, history_len: int = 20, tick_ms: int = 500) ->
 
     # Rolling history of plays (both players)
     history: list[dict] = []
-
     samples: list[dict] = []
 
     while tick <= max_t:
@@ -485,7 +465,7 @@ def build_bc_samples(record: dict, history_len: int = 20, tick_ms: int = 500) ->
         label = team_play["card"] if team_play else "NOOP"
 
         # Sample uses history BEFORE applying this window's plays
-        samples.append({
+        row = {
             "replay_id": record.get("replay_id"),
             "t": tick,                      # replay tick units
             "tick_ms": int(tick_ms),        # what you requested
@@ -497,13 +477,33 @@ def build_bc_samples(record: dict, history_len: int = 20, tick_ms: int = 500) ->
             "opp_deck": opp_deck,
             "history": history[-history_len:],
             "label": label,
-        })
+        }
+
+        # >>> NEW: attach label placement if present (only for non-NOOP)
+        if team_play is not None:
+            x = team_play.get("x")
+            y = team_play.get("y")
+            if x is not None and y is not None:
+                row["x"] = x
+                row["y"] = y
+
+        samples.append(row)
 
         # Update history with all plays in this window (chronological)
         for e in window_plays:
             side = e.get("side")
             p = "me" if side == team_side else "opp"
-            history.append({"p": p, "card": e.get("card"), "t": e.get("t")})
+
+            h = {"p": p, "card": e.get("card"), "t": e.get("t")}
+
+            # >>> NEW: keep placement in history if present
+            ex = e.get("x")
+            ey = e.get("y")
+            if ex is not None and ey is not None:
+                h["x"] = ex
+                h["y"] = ey
+
+            history.append(h)
 
         tick += tick_dt
 

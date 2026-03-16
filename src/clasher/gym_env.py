@@ -87,9 +87,8 @@ class ClashRoyaleGymEnv(gym.Env):
         # Opponent policy: either None (no embedded opponent) or an InferenceModel instance
         if opponent_policy:
             self.set_opponent_policy(opponent_policy)
-        if opponent_state:
-            self.initial_state = opponent_state
-            self.opponent_state = opponent_state
+        self.initial_state = opponent_state  # may be None, that's fine
+        self.opponent_state = opponent_state
         
         print(type(opponent_state))
         # Apply any initial decks requested by constructor

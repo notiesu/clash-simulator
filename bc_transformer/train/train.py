@@ -24,10 +24,10 @@ NOOP = "NOOP"
 # HTML replay coordinate system (from RoyaleAPI replay_map markers)
 # data-x in [500 .. 17500]
 # data-y in [500 .. 31499]
-HTML_X_MIN = 500
+HTML_X_MIN = 499
 HTML_X_MAX = 17500
 HTML_Y_MIN = 500
-HTML_Y_MAX = 31499
+HTML_Y_MAX = 31500
 
 # Env tile grid
 X_BINS = 18  # x_tile: 0..17

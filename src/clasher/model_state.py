@@ -240,11 +240,11 @@ class BCState(State):
     ) -> int:
         """
         Converts (gate, deck_idx, x_bin, y_bin) -> env action int.
-
-        READ-ONLY with respect to history. (It DOES consume should_decide? NO.)
-        Per your requirement, should_decide consumption should happen in reward update
-        logic, not here. So decode_action will only *check* should_decide.
+        Hard clamps:
+            x ∈ [0,18]
+            y ∈ [0,14]
         """
+
         if not self.should_decide:
             return -1
 
@@ -265,7 +265,6 @@ class BCState(State):
         u = getattr(env, "unwrapped", env)
         pid = int(infer_player_id_fn())
 
-        # current hand from env
         if not hasattr(u, "battle"):
             return -1
 
@@ -274,27 +273,44 @@ class BCState(State):
         if len(hand) == 0:
             return -1
 
-        # deck list used for deck_idx mapping (must match encode_inputs)
+        # Deck mapping (must match encode_inputs)
         deck_env_names = self._get_player_card_list(env, pid)[:8]
         if len(deck_env_names) < 8:
             deck_env_names += [None] * (8 - len(deck_env_names))
 
-        env_card_name = deck_env_names[deck_idx] if (0 <= deck_idx < len(deck_env_names)) else None
+        env_card_name = (
+            deck_env_names[deck_idx]
+            if 0 <= deck_idx < len(deck_env_names)
+            else None
+        )
 
-        # env expects HAND SLOT index
+        # Map deck position -> hand slot
         if env_card_name is not None and env_card_name in hand:
             card_idx = int(hand.index(env_card_name))
         else:
-            card_idx = 0
+            return -1  # do NOT fallback to slot 0 anymore
 
-        # bins -> env tile
+        # -----------------------
+        # BIN → TILE CONVERSION
+        # -----------------------
+
         tiles_x = int(getattr(u, "tiles_x", x_bins))
         tiles_y = int(getattr(u, "tiles_y", y_bins))
 
-        ex = int(round(x_bin * (tiles_x - 1) / max(1, x_bins - 1))) if tiles_x > 1 else 0
-        ey = int(round(y_bin * (tiles_y - 1) / max(1, y_bins - 1))) if tiles_y > 1 else 0
-        ex = max(0, min(tiles_x - 1, ex))
-        ey = max(0, min(tiles_y - 1, ey))
+        # Convert bin → tile index
+        if tiles_x > 1:
+            ex = int(round(x_bin * (tiles_x - 1) / max(1, x_bins - 1)))
+        else:
+            ex = 0
+
+        if tiles_y > 1:
+            ey = int(round(y_bin * (tiles_y - 1) / max(1, y_bins - 1)))
+        else:
+            ey = 0
+
+        # HARD CLAMP (what you requested)
+        ex = max(0, min(18, ex))
+        ey = max(0, min(14, ey))
 
         tile_index = int(ey * tiles_x + ex)
 
