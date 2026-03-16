@@ -33,6 +33,13 @@ if __name__ == "__main__":
     parser.add_argument("--p1_model_path", type=str, required=True, help="Path to the model file.")
     parser.add_argument("--p1_model_type", type=str, default="PPO", help="Type of the model to use for inference (default: PPO).")
     parser.add_argument("--printLogs", action="store_true", help="Enable logging of actions to a JSONL file.")
+    parser.add_argument("--p0_vocab_json", type=str, default=None, help="(BC only) Path to token2id json")
+    parser.add_argument("--p1_vocab_json", type=str, default=None, help="(BC only) Path to token2id json")
+    parser.add_argument("--no_op_pct", type=float, default=0.5, help="How reactive or unreactive the Random Policy Bot is")
+    parser.add_argument("--history_len", type=int, default=20, help="(BC only) history length")
+    parser.add_argument("--pad_id", type=int, default=0, help="(BC only) pad token id used during training")
+    parser.add_argument("--device", type=str, default="cpu", help="cpu or cuda")
+
     args = parser.parse_args()
 
     # Example usage
@@ -106,11 +113,12 @@ if __name__ == "__main__":
 
         obs, reward, done, truncated, info = env.step(action_p0)
 
-        #env handles p1 action internally
-
-        #post process reward 
-        #NOTE: For now only processes reward for p0 agent
-        reward = model_p0.postprocess_reward(info)
+        # Update reward / state
+        if args.p0_model_type == "BC":
+            bc_state_p0 = model_p0.postprocess_reward(info, bc_state_p0)
+            reward = info.get("reward", reward)
+        else:
+            reward = model_p0.postprocess_reward(info)
         
         #split out - really the same for each agent
         if args.printLogs:            # Log step information

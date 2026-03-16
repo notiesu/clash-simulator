@@ -95,41 +95,41 @@ download_s3_dir () {
 # -----------------------------
 # If train/val are S3, download and rewrite args
 # -----------------------------
-if [[ -n "$TRAIN_JSONL" && "$TRAIN_JSONL" == s3://* ]]; then
-  if [[ "$TRAIN_JSONL" == */ ]]; then
-    TRAIN_LOCAL="$LOCAL_DATA_DIR/train"
-    download_s3_dir "$TRAIN_JSONL" "$TRAIN_LOCAL"
-    set_arg --train_jsonl "$TRAIN_LOCAL"
-  else
-    TRAIN_LOCAL="$LOCAL_DATA_DIR/train.jsonl"
-    download_s3_file "$TRAIN_JSONL" "$TRAIN_LOCAL"
-    set_arg --train_jsonl "$TRAIN_LOCAL"
-  fi
-fi
-
-if [[ -n "$VAL_JSONL" && "$VAL_JSONL" == s3://* ]]; then
-  if [[ "$VAL_JSONL" == */ ]]; then
-    VAL_LOCAL="$LOCAL_DATA_DIR/val"
-    download_s3_dir "$VAL_JSONL" "$VAL_LOCAL"
-    set_arg --val_jsonl "$VAL_LOCAL"
-  else
-    VAL_LOCAL="$LOCAL_DATA_DIR/val.jsonl"
-    download_s3_file "$VAL_JSONL" "$VAL_LOCAL"
-    set_arg --val_jsonl "$VAL_LOCAL"
-  fi
-fi
-
-echo "Final args -> ${ARGS[*]}"
-
-# quick sanity
-echo "Sanity check local paths:"
-ls -la "$LOCAL_DATA_DIR" || true
-if [[ -n "$(get_arg --train_jsonl)" ]]; then
-  echo "train_jsonl local -> $(get_arg --train_jsonl)"
-fi
-if [[ -n "$(get_arg --val_jsonl)" ]]; then
-  echo "val_jsonl local -> $(get_arg --val_jsonl)"
-fi
+#if [[ -n "$TRAIN_JSONL" && "$TRAIN_JSONL" == s3://* ]]; then
+#  if [[ "$TRAIN_JSONL" == */ ]]; then
+#    TRAIN_LOCAL="$LOCAL_DATA_DIR/train"
+#    download_s3_dir "$TRAIN_JSONL" "$TRAIN_LOCAL"
+#    set_arg --train_jsonl "$TRAIN_LOCAL"
+#  else
+#    TRAIN_LOCAL="$LOCAL_DATA_DIR/train.jsonl"
+#    download_s3_file "$TRAIN_JSONL" "$TRAIN_LOCAL"
+#    set_arg --train_jsonl "$TRAIN_LOCAL"
+#  fi
+#fi
+#
+#if [[ -n "$VAL_JSONL" && "$VAL_JSONL" == s3://* ]]; then
+#  if [[ "$VAL_JSONL" == */ ]]; then
+#    VAL_LOCAL="$LOCAL_DATA_DIR/val"
+#    download_s3_dir "$VAL_JSONL" "$VAL_LOCAL"
+#    set_arg --val_jsonl "$VAL_LOCAL"
+#  else
+#    VAL_LOCAL="$LOCAL_DATA_DIR/val.jsonl"
+#    download_s3_file "$VAL_JSONL" "$VAL_LOCAL"
+#    set_arg --val_jsonl "$VAL_LOCAL"
+#  fi
+#fi
+#
+#echo "Final args -> ${ARGS[*]}"
+#
+## quick sanity
+#echo "Sanity check local paths:"
+#ls -la "$LOCAL_DATA_DIR" || true
+#if [[ -n "$(get_arg --train_jsonl)" ]]; then
+#  echo "train_jsonl local -> $(get_arg --train_jsonl)"
+#fi
+#if [[ -n "$(get_arg --val_jsonl)" ]]; then
+#  echo "val_jsonl local -> $(get_arg --val_jsonl)"
+#fi
 
 cd /workspace
 exec micromamba run -n base python -u /workspace/train.py "${ARGS[@]}"

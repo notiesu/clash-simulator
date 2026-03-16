@@ -375,6 +375,7 @@ class ClashRoyaleGymEnv(gym.Env):
             opponent_obs = self.transpose_observation(self.render_obs())
             processed_opp_obs = self.opponent_policy.preprocess_observation(opponent_obs)
 
+            # TODO Add BC_State Update Here
             raw_action1, self.opponent_state = self.opponent_policy.predict(processed_opp_obs, valid_action_mask=self.get_valid_action_mask(1), state=self.opponent_state)
             action1 = self.opponent_policy.postprocess_action(raw_action1)
         else:

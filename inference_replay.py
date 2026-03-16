@@ -55,7 +55,6 @@ class ReplayVisualizer(BattleVisualizer):
 
         self.state = ReplayState()
         
-
     def setup_test_battle(self):
         # overwriting to pass this
         pass
