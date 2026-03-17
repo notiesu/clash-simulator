@@ -9,6 +9,7 @@ def init_lstm(shape):
     zero = np.zeros(shape_fixed, dtype=np.float32)
     return zero, zero
 
+DECK = ["Cannon", "Fireball", "HogRider", "IceGolemite", "IceSpirits", "Musketeer", "Skeletons", "Log"]
 @dataclass
 class State:
     def reset(self):
@@ -83,30 +84,6 @@ class BCState(State):
     # -------------------------
     # READ-ONLY helpers (no mutation)
     # -------------------------
-    def _get_player_card_list(self, env, pid: int) -> List[Any]:
-        """
-        Best-effort card list getter. Tries common attrs.
-        Returns a list of env card names or objects already used elsewhere in repo.
-        """
-        u = getattr(env, "unwrapped", env)
-        if not hasattr(u, "battle"):
-            return []
-
-        player = u.battle.players[pid]
-
-        for attr in ("deck", "cards", "deck_cards", "full_deck"):
-            if hasattr(player, attr):
-                v = getattr(player, attr)
-                if isinstance(v, (list, tuple)) and len(v) > 0:
-                    return list(v)
-
-        # fallback: some envs only expose current hand
-        if hasattr(player, "hand"):
-            v = getattr(player, "hand")
-            if isinstance(v, (list, tuple)):
-                return list(v)
-
-        return []
 
     def _encode_cards_to_ids(self, cards: List[Any], token2id: Dict[str, int], pad_id: int, env_to_model: Dict[str, str]) -> torch.Tensor:
         # already numeric?
@@ -145,7 +122,7 @@ class BCState(State):
         env_to_model: Dict[str, str],
         history_len: int,
         device,
-        infer_player_id_fn,
+        pid,
         pad_xy: Tuple[int, int],
     ) -> Dict[str, torch.Tensor]:
         """
@@ -153,19 +130,12 @@ class BCState(State):
 
         READ-ONLY: does not mutate state. Uses current state history and current env decks.
         """
-        pid = int(infer_player_id_fn())
         opp = 1 - pid
         pad_x, pad_y = pad_xy
 
         # deck + opp_deck from env (current view)
-        deck = self._get_player_card_list(env, pid)[:8]
-        opp_deck = self._get_player_card_list(env, opp)[:8]
-
-        # pad to length 8
-        if len(deck) < 8:
-            deck = deck + [None] * (8 - len(deck))
-        if len(opp_deck) < 8:
-            opp_deck = opp_deck + [None] * (8 - len(opp_deck))
+        deck = DECK
+        opp_deck = DECK
 
         # history from state (MODEL TOKENS already)
         h_cards = list(self.hist_cards)
@@ -233,8 +203,8 @@ class BCState(State):
     def decode_action(
         self,
         model_output: Any,
-        env,
-        infer_player_id_fn,
+        info,
+        pid,
         x_bins: int,
         y_bins: int,
     ) -> int:
@@ -244,11 +214,16 @@ class BCState(State):
             x ∈ [0,18]
             y ∈ [0,14]
         """
-
+        # import pdb
+        # pdb.set_trace()
+        
+        
         if not self.should_decide:
+            # print('a')
             return -1
 
         if not isinstance(model_output, (tuple, list)) or len(model_output) != 4:
+            print('b')
             return -1
 
         gate, deck_idx, x_bin, y_bin = model_output
@@ -262,19 +237,8 @@ class BCState(State):
         if deck_idx == 8:
             return -1
 
-        u = getattr(env, "unwrapped", env)
-        pid = int(infer_player_id_fn())
-
-        if not hasattr(u, "battle"):
-            return -1
-
-        player = u.battle.players[pid]
-        hand = list(getattr(player, "hand", []))
-        if len(hand) == 0:
-            return -1
-
         # Deck mapping (must match encode_inputs)
-        deck_env_names = self._get_player_card_list(env, pid)[:8]
+        deck_env_names = DECK
         if len(deck_env_names) < 8:
             deck_env_names += [None] * (8 - len(deck_env_names))
 
@@ -285,6 +249,8 @@ class BCState(State):
         )
 
         # Map deck position -> hand slot
+        hand = info['players'][pid]['hand']
+        print(hand)
         if env_card_name is not None and env_card_name in hand:
             card_idx = int(hand.index(env_card_name))
         else:
@@ -294,8 +260,8 @@ class BCState(State):
         # BIN → TILE CONVERSION
         # -----------------------
 
-        tiles_x = int(getattr(u, "tiles_x", x_bins))
-        tiles_y = int(getattr(u, "tiles_y", y_bins))
+        tiles_x = 18
+        tiles_y = 32
 
         # Convert bin → tile index
         if tiles_x > 1:
@@ -314,10 +280,12 @@ class BCState(State):
 
         tile_index = int(ey * tiles_x + ex)
 
-        actions_per_tile = int(getattr(u, "actions_per_tile", tiles_x * tiles_y))
+        actions_per_tile = 2304 / 4
         tile_index = max(0, min(actions_per_tile - 1, tile_index))
 
-        return int(card_idx * actions_per_tile + tile_index)
+        action = int(card_idx * actions_per_tile + tile_index)
+        print(card_idx, ey, ex, action)
+        return action
 
     # -------------------------
     # Update from info (MUTATES state) - called from postprocess_reward

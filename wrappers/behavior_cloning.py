@@ -12,11 +12,11 @@ from src.clasher.model import InferenceModel
 from src.clasher.model_state import BCState
 
 # Prefer new location; fallback for older repo layouts
-try:
-    from model import BCTransformer
-except Exception:  # pragma: no cover
-    from bc_transformer.train.model import BCTransformer
 
+from bc_transformer.train.model import BCTransformer
+
+
+DECK = ["Cannon", "Fireball", "HogRider", "IceGolemite", "IceSpirits", "Musketeer", "Skeletons", "Log"]
 
 # ----------------------------
 # Card name mapping
@@ -64,9 +64,9 @@ class BCInferenceModel(InferenceModel):
       - postprocess_action(model_output, state) delegates to state.decode_action (read-only)
     """
 
-    def __init__(self, env=None, bc_args: Optional[BCArgs] = None, printLogs: bool = False):
+    def __init__(self, env=None, bc_args: Optional[BCArgs] = None, printLogs: bool = False, player_id = 0):
         super().__init__()
-
+        self.player_id = player_id
         self.env = env
         self.printLogs = printLogs
         self.bc_args = bc_args or BCArgs()
@@ -75,17 +75,18 @@ class BCInferenceModel(InferenceModel):
         self.token2id: Optional[Dict[str, int]] = None
         self.pad_id: Optional[int] = self.bc_args.pad_id
 
-        dev = self.bc_args.device
-        self.device = torch.device(dev if (dev.startswith("cuda") and torch.cuda.is_available()) else "cpu")
+        self.device = self.bc_args.device
 
         # 1) Load token2id now (so preprocess works even before weights load)
         t2i_path = getattr(self.bc_args, "token2id_path", None)
+        print(t2i_path)
         if t2i_path:
             t2i_path = Path(t2i_path)
             if not t2i_path.exists():
                 raise FileNotFoundError(f"token2id_path does not exist: {t2i_path}")
             with open(t2i_path, "r") as f:
                 self.token2id = json.load(f)
+
             if self.pad_id is None:
                 self.pad_id = int(self.token2id.get("<PAD>", 0))
             if self.printLogs:
@@ -112,10 +113,7 @@ class BCInferenceModel(InferenceModel):
         return MODEL_TO_ENV.get(model_token, model_token)
 
     def _infer_player_id(self) -> int:
-        u = getattr(self.env, "unwrapped", self.env)
-        if hasattr(u, "opponent_policy") and getattr(u, "opponent_policy") is self:
-            return 1
-        return 0
+        return self.player_id
 
     def _encode_cards_to_ids(self, cards) -> torch.Tensor:
         """
@@ -373,14 +371,14 @@ class BCInferenceModel(InferenceModel):
             env_to_model=ENV_TO_MODEL,
             history_len=int(self.bc_args.history_len),
             device=self.device,
-            infer_player_id_fn=self._infer_player_id,
+            pid=self.player_id,
             pad_xy=(PAD_X, PAD_Y),
         )
 
     def _mask_to_current_hand(
     self,
     card_logits: torch.Tensor,
-    state: BCState,
+    info,
     *,
     noop_index: int = 8,
 ) -> tuple[torch.Tensor, list[bool]]:
@@ -392,18 +390,10 @@ class BCInferenceModel(InferenceModel):
           masked_logits: same shape as card_logits
           allowed: python list[bool] length 9 (0..8)
         """
-        u = getattr(self.env, "unwrapped", self.env)
-        pid = int(self._infer_player_id())
-
-        hand = []
-        try:
-            player = u.battle.players[pid]
-            hand = list(getattr(player, "hand", []))
-        except Exception:
-            hand = []
+        hand = info['players'][self.player_id]['hand'] if isinstance(info, dict) else []
 
         # deck_env_names MUST match how BCState.encode_inputs forms the 8-card deck view
-        deck_env_names = state._get_player_card_list(self.env, pid)[:8]
+        deck_env_names = DECK
         if len(deck_env_names) < 8:
             deck_env_names += [None] * (8 - len(deck_env_names))
 
@@ -422,7 +412,7 @@ class BCInferenceModel(InferenceModel):
         return masked, allowed
 
     @torch.no_grad()
-    def predict(self, observation: Any, state: BCState) -> Tuple[int, int, int, int]:
+    def predict(self, observation: Any, valid_action_mask = None, state=None, info=None):
         if self.model is None:
             mp = getattr(self.bc_args, "model_path", None)
             if mp:
@@ -454,7 +444,7 @@ class BCInferenceModel(InferenceModel):
         gate = int(torch.argmax(gate_logits, dim=-1).item())  # 0=WAIT, 1=PLAY
 
         # NEW: mask deck choices to only current hand
-        card_logits_masked, allowed = self._mask_to_current_hand(card_logits, state, noop_index=8)
+        card_logits_masked, allowed = self._mask_to_current_hand(card_logits, info, noop_index=8)
 
         deck_idx_raw = int(torch.argmax(card_logits, dim=-1).item())          # 0..7 or 8=NOOP
         deck_idx = int(torch.argmax(card_logits_masked, dim=-1).item())       # 0..7 or 8=NOOP (masked)
@@ -467,19 +457,28 @@ class BCInferenceModel(InferenceModel):
                 f"| x_bin: {x_bin} | y_bin: {y_bin} | allowed={allowed}"
             )
 
-        return gate, deck_idx, x_bin, y_bin
-
-    def postprocess_action(self, model_output: Any, state: BCState) -> int:
         """Decode model output into env action using BCState (read-only)."""
-        return state.decode_action(
+
+        #get action
+        model_output = (gate, deck_idx, x_bin, y_bin)
+        action_int = state.decode_action(
             model_output=model_output,
-            env=self.env,
-            infer_player_id_fn=self._infer_player_id,
+            info=info,
+            pid=self.player_id,
             x_bins=X_BINS,
             y_bins=Y_BINS,
         )
 
+        #update state
+        next_state = self.update_history_from_info(info, state)
+
+        if (action_int != -1):
+            print(action_int)
+        return action_int, next_state
+
+    def postprocess_action(self, action) -> int:
+        return action
+
     def postprocess_reward(self, info: dict, state: BCState) -> BCState:
-        """ONLY mutation point: update state from env info and return it."""
-        return self.update_history_from_info(info, state)
+        return 0.0
     

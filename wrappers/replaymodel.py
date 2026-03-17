@@ -38,7 +38,7 @@ class ReplayInferenceModel(InferenceModel):
         state.tick += 1
         return int(action), state
 
-    def preprocess_observation(self, observation):
+    def preprocess_observation(self, observation, state=None):
         return observation  
 
     def postprocess_action(self, model_output):

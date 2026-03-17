@@ -24,7 +24,6 @@ from .model_state import State
 from .card_encoder import CardEncoder
 
 
-
 import random
 
 
@@ -373,10 +372,13 @@ class ClashRoyaleGymEnv(gym.Env):
         if self.opponent_policy is not None:
             # Use the opponent policy model to select an action
             opponent_obs = self.transpose_observation(self.render_obs())
-            processed_opp_obs = self.opponent_policy.preprocess_observation(opponent_obs)
+            processed_opp_obs = self.opponent_policy.preprocess_observation(opponent_obs, state=self.opponent_state)
 
-            # TODO Add BC_State Update Here
-            raw_action1, self.opponent_state = self.opponent_policy.predict(processed_opp_obs, valid_action_mask=self.get_valid_action_mask(1), state=self.opponent_state)
+            #TODO THIS HACK SUCKS BUT IF ITS A BC MODEL JUST PASS INfO IN PREDICT
+            if hasattr(self.opponent_policy, 'token2id'):
+                raw_action1, self.opponent_state = self.opponent_policy.predict(processed_opp_obs, valid_action_mask=self.get_valid_action_mask(1), state=self.opponent_state, info=self.last_info)
+            else:
+                raw_action1, self.opponent_state = self.opponent_policy.predict(processed_opp_obs, valid_action_mask=self.get_valid_action_mask(1), state=self.opponent_state)
             action1 = self.opponent_policy.postprocess_action(raw_action1)
         else:
             action1 = self.get_valid_action_mask(1)
