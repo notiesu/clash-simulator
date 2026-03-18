@@ -206,7 +206,11 @@ class PPO(nn.Module):
 
         # Optimizer
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
+
     def act(self, obs, hidden_states=None, deterministic=False, valid_action_mask=None, play_bias=0.0):
+
+        device = next(self.parameters()).device
+        obs = {k: v.to(device) for k, v in obs.items()}
         #valid action mask is passed as tensor by predict
         if valid_action_mask is not None:
              # slice off NO_OP if it’s at the end
@@ -322,6 +326,9 @@ class PPO(nn.Module):
         obs: tensorized observation dict with keys 'board', 'elixirs', 'hands', 'cycles'
         hidden_state: optional (1, B, H) for GRU
         """
+
+        device = next(self.parameters()).device
+        obs = {k: v.to(device) for k, v in obs.items()}
         board = obs['board']
         elixirs = obs['elixirs'].float()  # ensure elixirs are float
 
@@ -405,42 +412,12 @@ class PPO(nn.Module):
         print(f"Model exported to {filepath}")
 
 class RecurrentPPOInferenceModel(InferenceModel):
-    def __init__(self, model_path=None, eval=False, deterministic=False):
+    def __init__(self, device, model_path=None, eval=False, deterministic=False):
          # record flags
         self.eval_mode = eval
         self.deterministic = deterministic
-
+        self.device=device
          # Eval-mode optimizations
-        if self.eval_mode:
-            # set policy to eval and disable grad globally for inference
-            self.model.eval()
-            torch.set_grad_enabled(False)
-
-            # prefer GPU + fp16 when available for faster inference
-            if torch.cuda.is_available():
-                self.device = torch.device("cuda")
-                try:
-                    self.model.to(self.device)
-                except Exception:
-                    logging.exception("Failed to move model to CUDA; continuing on current device")
-                # use automatic mixed precision for faster kernels when supported
-                self.use_autocast = True
-                # enable cudnn benchmark for fixed-size ops
-                try:
-                    torch.backends.cudnn.benchmark = True
-                except Exception:
-                    pass
-            else:
-                self.device = torch.device("cpu")
-                self.use_autocast = False
-
-            if hasattr(self.model.policy, "lstm"):
-                self.model.policy.lstm.flatten_parameters()
-        else:
-            # not eval: default device still CPU
-            self.device = torch.device("cpu")
-            self.use_autocast = False
-
         self.model = PPO(
             board_shape=(3, 18, 32),
             num_elixir=2,
@@ -451,13 +428,19 @@ class RecurrentPPOInferenceModel(InferenceModel):
             mlp_hidden_dim=128,
             gru_hidden_dim=128,
             num_actions=2305,
+            device=device,
             use_gru=True,
+            
             )
-        self.model.to(self.device)
         self.load_model(model_path)
+        
         self.episode_start = None
-        #some custom parameters for reward shaping
+       
+        self.model.eval()
 
+        
+        #some custom parameters for reward shaping
+        self.model.to(self.device)
        
 
        
@@ -474,28 +457,7 @@ class RecurrentPPOInferenceModel(InferenceModel):
         #convert valid action mask to tensor
         if valid_action_mask is not None:
             valid_action_mask = torch.tensor(valid_action_mask, dtype=torch.bool, device=self.device).unsqueeze(0)  # add batch dim
-        if self.eval_mode:
-            # Use inference_mode to skip autograd overhead. If CUDA is available
-            # and use_autocast is True, enable AMP for faster kernel execution.
-            with torch.inference_mode():
-                if self.use_autocast and torch.cuda.is_available():
-                    with torch.cuda.amp.autocast():
-                        actions, _,_, next_states = self.model.act(
-                            obs,
-                            state,
-                            self.deterministic,
-                            valid_action_mask=valid_action_mask
-                        )
-                else:
-                    #instead of predict, use forward
-                    actions, _,_, next_states = self.model.act(
-                        obs,
-                        state,
-                        self.deterministic,
-                        valid_action_mask=valid_action_mask
-                    )
-        else:
-            actions, _,_, next_states = self.model.act(
+        actions, _,_, next_states = self.model.act(
                 obs,
                 state,
                 self.deterministic,
@@ -503,8 +465,7 @@ class RecurrentPPOInferenceModel(InferenceModel):
             )
         # actions, next_states are tensors containing batch dim
         #this function should return single int
-        action_ints = self.model.actions_to_ints(actions).numpy()  # convert to numpy and remove batch dim
-
+        action_ints = self.model.actions_to_ints(actions).cpu().numpy()  # convert to numpy and remove batch dim
         return action_ints[0], next_states  # return single int and next_states without batch dim
 
     def perf_test(self, obs):
@@ -519,7 +480,7 @@ class RecurrentPPOInferenceModel(InferenceModel):
         print (f"RecurrentPPO inference time for {N} steps in eval_mode={self.eval_mode}: {end - start:.4f} seconds")
 
 
-    def preprocess_observation(self, observation):
+    def preprocess_observation(self, observation, state=None):
         # Normalize/convert HWC -> CHW (and NHWC -> NCHW) for numpy inputs and dict {"p1-view": HWC}
         return self.model.obs_to_tensor(observation, device=self.device)
 

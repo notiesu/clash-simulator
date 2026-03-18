@@ -36,7 +36,7 @@ class RandomPolicyInferenceModel(InferenceModel):
             return 2304, None # No-op action
         return self.rng.choice(valid_actions), None
 
-    def preprocess_observation(self, observation):
+    def preprocess_observation(self, observation, state=None):
         return observation  
 
     def postprocess_action(self, model_output):

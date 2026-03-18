@@ -52,7 +52,7 @@ class ManualController(BattleVisualizer):
         self.step_input_text = str(self.step_count)
 
         # Create a Gym env wrapper to leverage opponent policy handling
-        self.env = ClashRoyaleGymEnv()
+        self.env = ClashRoyaleGymEnv(speed_factor=2.0)
         # Use the visualizer's engine/battle so env.step manipulates the same state
         # (ClashRoyaleGymEnv.decode_and_deploy uses self.engine.simulate_action)
         self.env.engine = self.engine
@@ -70,11 +70,8 @@ class ManualController(BattleVisualizer):
             self.env.set_opponent_policy(self.opponent)
         elif opponent_type == "recurrent" and RecurrentPPOInferenceModel is not None and model_path:
             # RecurrentPPOInferenceModel expects a model path in its constructor
-            try:
-                self.opponent = RecurrentPPOInferenceModel(model_path, eval=True, deterministic=True)
-                self.env.set_opponent_policy(self.opponent)
-            except Exception as e:
-                raise RuntimeError(f"Failed loading opponent model: {e}")
+            self.opponent = RecurrentPPOInferenceModel(model_path, eval=True, deterministic=False)
+            self.env.set_opponent_policy(self.opponent)
         elif opponent_type == "recurrent_onnx":
             from wrappers.rppo_onnx import RecurrentPPOONNXInferenceModel
             try:

@@ -593,28 +593,29 @@ class BattleVisualizer:
         ui_y += line_height * 2
         
         # Player stats
-        for i, player in enumerate(self.battle.players):
-            color = BLUE if i == 0 else RED
-            player_text = self.font.render(f"Player {i}:", True, color)
-            self.screen.blit(player_text, (ui_x, ui_y))
-            ui_y += line_height
-            
-            elixir_text = self.font.render(f"  Elixir: {player.elixir:.1f}/10", True, BLACK)
-            self.screen.blit(elixir_text, (ui_x, ui_y))
-            ui_y += line_height
-            
-            crowns_text = self.font.render(f"  Crowns: {player.get_crown_count()}", True, BLACK)
-            self.screen.blit(crowns_text, (ui_x, ui_y))
-            ui_y += line_height
-            
-            towers_text = self.font.render(f"  King: {float(player.king_tower_hp)}", True, BLACK)
-            self.screen.blit(towers_text, (ui_x, ui_y))
-            ui_y += line_height
-            
-            towers_text2 = self.font.render(f"  Towers: {float(player.left_tower_hp)}/{float(player.right_tower_hp)}", True, BLACK)
-            self.screen.blit(towers_text2, (ui_x, ui_y))
-            ui_y += line_height * 2
+        i = 0
+        player = self.battle.players[0]
+        color = BLUE if i == 0 else RED
+        player_text = self.font.render(f"Player {i}:", True, color)
+        self.screen.blit(player_text, (ui_x, ui_y))
+        ui_y += line_height
         
+        elixir_text = self.font.render(f"  Elixir: {player.elixir:.1f}/10", True, BLACK)
+        self.screen.blit(elixir_text, (ui_x, ui_y))
+        ui_y += line_height
+        
+        crowns_text = self.font.render(f"  Crowns: {player.get_crown_count()}", True, BLACK)
+        self.screen.blit(crowns_text, (ui_x, ui_y))
+        ui_y += line_height
+        
+        towers_text = self.font.render(f"  King: {float(player.king_tower_hp)}", True, BLACK)
+        self.screen.blit(towers_text, (ui_x, ui_y))
+        ui_y += line_height
+        
+        towers_text2 = self.font.render(f"  Towers: {float(player.left_tower_hp)}/{float(player.right_tower_hp)}", True, BLACK)
+        self.screen.blit(towers_text2, (ui_x, ui_y))
+        ui_y += line_height * 2
+    
         # Entity count
         alive_entities = sum(1 for e in self.battle.entities.values() if e.is_alive)
         entities_text = self.font.render(f"Entities: {alive_entities}", True, BLACK)

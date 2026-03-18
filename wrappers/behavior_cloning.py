@@ -69,7 +69,7 @@ class BCInferenceModel(InferenceModel):
         self.player_id = player_id
         self.env = env
         self.printLogs = printLogs
-        self.bc_args = bc_args or BCArgs()
+        self.bc_args = bc_args if bc_args is not None else BCArgs()
 
         self.model: Optional[BCTransformer] = None
         self.token2id: Optional[Dict[str, int]] = None
@@ -89,11 +89,9 @@ class BCInferenceModel(InferenceModel):
 
             if self.pad_id is None:
                 self.pad_id = int(self.token2id.get("<PAD>", 0))
-            if self.printLogs:
-                print(f"[BCInferenceModel] Loaded token2id from: {t2i_path} | pad_id={self.pad_id}")
+            print(f"[BCInferenceModel] Loaded token2id from: {t2i_path} | pad_id={self.pad_id}")
         else:
-            if self.printLogs:
-                print("[BCInferenceModel] WARNING: bc_args.token2id_path is None; token2id not loaded yet.")
+            print("[BCInferenceModel] WARNING: bc_args.token2id_path is None; token2id not loaded yet.")
 
         # 2) Load weights if provided explicitly, else (optionally) auto-discover.
         mp = getattr(self.bc_args, "model_path", None)
@@ -357,7 +355,7 @@ class BCInferenceModel(InferenceModel):
     
         return state
 
-    def preprocess_observation(self, observation: Any, state: BCState) -> Dict[str, torch.Tensor]:
+    def preprocess_observation(self, observation: Any, state) -> Dict[str, torch.Tensor]:
         """Build model inputs from env + BCState (read-only)."""
         if self.token2id is None:
             raise ValueError("token2id not loaded; set bc_args.token2id_path.")
@@ -472,8 +470,6 @@ class BCInferenceModel(InferenceModel):
         #update state
         next_state = self.update_history_from_info(info, state)
 
-        if (action_int != -1):
-            print(action_int)
         return action_int, next_state
 
     def postprocess_action(self, action) -> int:

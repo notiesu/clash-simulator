@@ -284,7 +284,6 @@ class BCState(State):
         tile_index = max(0, min(actions_per_tile - 1, tile_index))
 
         action = int(card_idx * actions_per_tile + tile_index)
-        print(card_idx, ey, ex, action)
         return action
 
     # -------------------------
