@@ -469,7 +469,6 @@ class BCInferenceModel(InferenceModel):
 
         #update state
         next_state = self.update_history_from_info(info, state)
-
         return action_int, next_state
 
     def postprocess_action(self, action) -> int:

@@ -223,7 +223,6 @@ class BCState(State):
             return -1
 
         if not isinstance(model_output, (tuple, list)) or len(model_output) != 4:
-            print('b')
             return -1
 
         gate, deck_idx, x_bin, y_bin = model_output
@@ -250,7 +249,7 @@ class BCState(State):
 
         # Map deck position -> hand slot
         hand = info['players'][pid]['hand']
-        print(hand)
+        # print(hand)
         if env_card_name is not None and env_card_name in hand:
             card_idx = int(hand.index(env_card_name))
         else:
@@ -283,7 +282,10 @@ class BCState(State):
         actions_per_tile = 2304 / 4
         tile_index = max(0, min(actions_per_tile - 1, tile_index))
 
+        
         action = int(card_idx * actions_per_tile + tile_index)
+        # if action != -1:
+        #     print(action)
         return action
 
     # -------------------------
@@ -309,7 +311,7 @@ class BCState(State):
         if not isinstance(last, dict):
             return self
 
-        opp_id = 1 - int(my_id)
+        opp_id = 1 ^ my_id
         pad_x, pad_y = pad_xy
 
         def _read_player(pid: int):

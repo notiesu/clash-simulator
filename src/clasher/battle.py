@@ -819,7 +819,8 @@ class BattleState:
             player1_crowns = self.players[0].get_crown_count()
             
             # After 6 minutes, crown count determines winner
-            if self.time >= 360.0:
+            #TODO - early termination since it doesn't determine for some reason
+            if self.time >= 355.0: 
                 if player0_crowns > player1_crowns:
                     self.winner = 0
                 elif player1_crowns > player0_crowns:
