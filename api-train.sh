@@ -47,6 +47,9 @@ fi
 
 cp -r "$TRAIN_PATH" "./train"
 
+#remove existing output path
+rm -rf "$OUT_PATH"
+
 mkdir -p output "$OUT_PATH"
 
 echo "Starting training..."

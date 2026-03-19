@@ -94,104 +94,134 @@ class PPO_V2(PPO):
         return heatmap
         
     def act(self, obs, hidden_states=None, deterministic=False, valid_action_mask=None, play_bias=0.0):
-        #PPO_V2 biases the placement logits based on self.placement_priors
-        #valid action mask is passed as tensor by predict
-
         device = self.device
 
-        # move obs tensors
+        # move obs
         obs = {k: v.to(device) for k, v in obs.items()}
 
         if valid_action_mask is not None:
             valid_action_mask = valid_action_mask.to(device)
-
-        
-        if valid_action_mask is not None:
-             # slice off NO_OP if it’s at the end
-            mask_no_op = valid_action_mask[:, -1:]  # optional
-            mask_cards = valid_action_mask[:, :-1]  # [1, 2304]
-            # reshape to [1, num_hand_slots, W*H]
-            valid_action_mask = mask_cards.view(1, self.num_hand_slots, self.W * self.H)
-        
-        # Forward pass
+            # remove NO-OP
+            mask_cards = valid_action_mask[:, :-1]
+            # reshape safely to match logits
+            batch_size = mask_cards.shape[0]
+            valid_action_mask = mask_cards.reshape(batch_size, self.num_hand_slots, self.W * self.H)
+        # forward
         logits, value, hidden_states = self.forward(obs, hidden_states)
-        
-        play_logits = logits["play"] + play_bias  # only apply bias in training
-        
-        # ---- Play vs NO-OP ----
-        play_dist = Categorical(logits=play_logits)
-        if deterministic:
-            play_action = torch.argmax(play_logits, dim=-1)
-        else:
-            play_action = play_dist.sample()
-        log_prob = play_dist.log_prob(play_action)
-        entropy = play_dist.entropy()
+
+        B = logits["play"].shape[0]
+
+        # ================= PLAY =================
+        #if valid action mask has no valid actions, we should force play=0 (NO-OP)
 
         
-        # ---- Card selection ----
-        card_logits = logits["card"]
+
+        true_play_logits = logits["play"]
+
+        
+        sample_play_logits = true_play_logits.clone()  # make a separate tensor
+        sample_play_logits[:, 1] += play_bias          # bias PLAY action
+
         if valid_action_mask is not None:
-            valid_card_mask = valid_action_mask[:, :, :self.num_hand_slots].any(dim=2)  # [1, num_hand_slots]
+            # if no valid actions, force NO-OP
+            no_valid = (valid_action_mask.sum(dim=1) == 0)  # shape: [batch]
+            true_play_logits[no_valid, 0] = 1e8  # large positive for NO-OP
+            true_play_logits[no_valid, 1] = -1e8 # large negative for PLAY
+            sample_play_logits[no_valid, 0] = 1e8
+            sample_play_logits[no_valid, 1] = -1e8
+
+        dist_play_sample = Categorical(logits=sample_play_logits)
+        dist_play_true = Categorical(logits=true_play_logits)
+
+        if deterministic:
+            play_action = torch.argmax(sample_play_logits, dim=-1)
+        else:
+            play_action = dist_play_sample.sample()
+
+        play_log_prob = dist_play_true.log_prob(play_action)
+        play_entropy = dist_play_true.entropy()
+
+        # ================= CARD =================
+        true_card_logits = logits["card"]
+
+        if valid_action_mask is not None:
+            # valid if ANY placement exists
+            valid_card_mask = valid_action_mask.any(dim=2)  # (B, num_cards)
+
             inf_mask = torch.where(
                 valid_card_mask,
-                torch.zeros_like(card_logits),
-                torch.full_like(card_logits, -1e8)
+                torch.zeros_like(true_card_logits),
+                torch.full_like(true_card_logits, -1e9)
             )
-            card_logits = card_logits + inf_mask
-        card_dist = Categorical(logits=card_logits)
-        if deterministic:
-            card_action = torch.argmax(card_logits, dim=-1)
+
+            true_card_logits_masked = true_card_logits + inf_mask
         else:
-            card_action = card_dist.sample()
-        card_log_prob = card_dist.log_prob(card_action)
-        card_entropy = card_dist.entropy()
-        
-        # ---- Placement selection ----
-        placement_logits = logits["placement"]
+            true_card_logits_masked = true_card_logits
 
+        dist_card = Categorical(logits=true_card_logits_masked)
 
-        #prepare card action - card idx -> card name -> card id
-        hands = obs["hands"][:, 0, :]  # (B, 4)
-        card_ids = torch.gather(hands, 1, card_action.unsqueeze(1)).squeeze(1)  # (B,)
+        if deterministic:
+            card_action = torch.argmax(true_card_logits_masked, dim=-1)
+        else:
+            card_action = dist_card.sample()
 
-        #bias by the placement priors for the selected card
-        self.placement_priors = self.placement_priors.to(device)  # do this once in init ideally
-        priors = self.placement_priors[card_ids]
+        card_log_prob = dist_card.log_prob(card_action)
+        card_entropy = dist_card.entropy()
+
+        # ================= PLACEMENT =================
+        true_placement_logits = logits["placement"]
+
+        # get selected card ids
+        hands = obs["hands"][:, 0, :]  # (B, num_hand_slots)
+        card_ids = torch.gather(hands, 1, card_action.unsqueeze(1)).squeeze(1)
+
+        # placement priors (bias ONLY for sampling)
+        priors = self.placement_priors.to(device)[card_ids]
         eps = 1e-8
-        biased_placement_logits = placement_logits + self.placement_alpha * torch.log(priors + eps)  # broadcast over batch
+        placement_bias = self.placement_alpha * torch.log(priors + eps)
 
         if valid_action_mask is not None:
-            #use card action to index into mask
-            valid_placement_mask = valid_action_mask[torch.arange(valid_action_mask.size(0)), card_action]
-            inf_mask = torch.where(
-                valid_placement_mask,
-                torch.zeros_like(biased_placement_logits),
-                torch.full_like(biased_placement_logits, -1e8)
-            )
-            biased_placement_logits = biased_placement_logits + inf_mask
+            placement_mask = valid_action_mask[torch.arange(B), card_action]  # (B, W*H)
 
-        placement_dist = Categorical(logits=biased_placement_logits)
-        if deterministic:
-            placement_action = torch.argmax(biased_placement_logits, dim=-1)
+            inf_mask = torch.where(
+                placement_mask,
+                torch.zeros_like(true_placement_logits),
+                torch.full_like(true_placement_logits, -1e9)
+            )
+
+            true_placement_logits_masked = true_placement_logits + inf_mask
         else:
-            placement_action = placement_dist.sample()
-        placement_log_prob = placement_dist.log_prob(placement_action)
-        placement_entropy = placement_dist.entropy()
-        
-        # Only count card & placement if play_action == 1
+            true_placement_logits_masked = true_placement_logits
+
+        # sampling logits (bias applied)
+        sample_placement_logits = true_placement_logits_masked + placement_bias
+
+        dist_place_sample = Categorical(logits=sample_placement_logits)
+        dist_place_true = Categorical(logits=true_placement_logits_masked)
+
+        if deterministic:
+            placement_action = torch.argmax(sample_placement_logits, dim=-1)
+        else:
+            placement_action = dist_place_sample.sample()
+
+        placement_log_prob = dist_place_true.log_prob(placement_action)
+        placement_entropy = dist_place_true.entropy()
+
+        # ================= COMBINE =================
         play_mask = (play_action == 1).float()
-        log_prob += play_mask * (card_log_prob + placement_log_prob)
-        entropy += play_mask * (card_entropy + placement_entropy)
-        
-        #TODO - I dont think is needed since they wont be part of the logprob update, but keeping just in case
-        # Set NO_OP for card/placement when not playing
-        # NO_OP_CARD = self.num_hand_slots  # or whatever you defined
-        # NO_OP_PLACEMENT = self.placement_head.out_features  # use a sentinel if needed
-        # card_actions = torch.where(play_action == 1, card_action, NO_OP_CARD)
-        # placement_actions = torch.where(play_action == 1, placement_action, NO_OP_PLACEMENT)
-        
+
+        log_prob = (
+            play_log_prob +
+            play_mask * (card_log_prob + placement_log_prob)
+        )
+
+        entropy = (
+            play_entropy +
+            play_mask * (card_entropy + placement_entropy)
+        )
+
         actions = (play_action, card_action, placement_action)
-        
+
         return actions, log_prob, value, hidden_states
     
 class RecurrentPPOInferenceModel_V2(RecurrentPPOInferenceModel):
