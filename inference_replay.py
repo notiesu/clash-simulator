@@ -51,7 +51,7 @@ class ReplayVisualizer(BattleVisualizer):
         self.p1_initial_hand = self.replay[0]['players'][1]['hand']
         self.env.set_player_deck(0, DECK, initial_hand=self.p0_initial_hand)
         self.env.set_player_deck(1, DECK, initial_hand=self.p1_initial_hand)
-
+        self.show_coords = True
 
         self.state = ReplayState()
         
